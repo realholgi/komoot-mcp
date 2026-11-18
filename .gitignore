@@ -8,3 +8,12 @@ htmlcov/
 build/
 dist/
 .DS_Store
+.env
+.env.*
+.omp/
+.netrc
+credentials.json
+komoot_credentials.json
+/data/
+/exports/
+/publications/

@@ -42,6 +42,11 @@ def reset_http_context(token):
     _http_context.reset(token)
 
 
+def is_http_context() -> bool:
+    """Report the request transport without creating account state."""
+    return _http_context.get()
+
+
 def require_local_filesystem():
     """Filesystem tools are available only to the trusted local stdio client."""
     if _http_context.get():

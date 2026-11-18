@@ -1,6 +1,6 @@
 # Prepared artifact format, version 1
 
-[Project overview](../README.md)
+[Project overview](../README.md) | [Prepared-route import](prepared-import.md) | [Reference](reference.md)
 
 Producers pass prepared files to the Komoot MCP importer through this format.
 They do not need a shared Python package, source checkout or running exporter process.

@@ -2,55 +2,56 @@
 
 An independent [MCP](https://modelcontextprotocol.io) server for Komoot tours and route planning.
 
-Browse tours and highlights, download GPX/FIT files, plan routes, or manage your account's tours.
+Browse tours and highlights, download GPX/FIT files, or plan routes with Komoot's native planner.
 Import prepared routes from an external exporter as private planned tours.
-The importer reads the saved tours back to check POIs and geometry.
+The importer reads saved tours back to check POIs and geometry.
+It needs no exporter installation, source database or running process.
+Photos and full detail archives stay local.
 
-## Install
+## Quickstart
 
-Use Python 3.11 or later. Run these commands from the repository root:
+Use Python 3.11 or later. Clone the repository and install the package:
 
 ```bash
+git clone https://github.com/realholgi/komoot-mcp.git
+cd komoot-mcp
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install .
 komoot-mcp --help
 ```
 
-The package uses Komoot-native route planning.
-
-## Connect an MCP client
-
-Use the absolute path to the installed command:
+Add the installed command to your MCP client:
 
 ```json
 {
   "mcpServers": {
     "komoot-mcp": {
       "command": "/absolute/path/to/komoot-mcp/.venv/bin/komoot-mcp",
-      "args": ["--transport", "stdio"]
+      "args": ["--transport", "stdio", "--read-only"]
     }
   }
 }
 ```
 
-For account tools, set `KOMOOT_EMAIL` and `KOMOOT_PASSWORD` in the server's launch environment.
+Set `KOMOOT_EMAIL` and `KOMOOT_PASSWORD` in the server's launch environment for account access.
+The `--read-only` flag hides and blocks tools that can change accounts or local files.
+See [MCP setup](docs/mcp-setup.md) for installation without a checkout, credentials and write-enabled operation.
+
+## Example requests
+
+- "List my planned hiking tours."
+- "Plan a hiking route through these coordinates without saving it."
+- "Preview this prepared route set before I approve publication."
+
+Remove `--read-only` before publication.
 Get explicit user approval before uploading, saving, updating, deleting, sharing or bookmarking.
+Use the client's tool discovery for current argument schemas.
 
-Use the client's tool discovery for current names and argument schemas.
-See [MCP setup](docs/mcp-setup.md) for credentials, routing and the authenticated HTTP gateway.
+## Documentation
 
-## Import prepared routes
-
-The server accepts versioned `prepared.json` artifacts with their referenced GPX and detail files.
-It does not need the exporter's snapshots, stage database, running process, Python library or source checkout.
-For HexaTrek stages, follow the [hexatrek-exporter workflow](docs/prepared-import.md#use-routes-from-hexatrek-exporter).
-
-- [Prepared-route import](docs/prepared-import.md): approval, publication receipts, updates and recovery.
+- [MCP setup](docs/mcp-setup.md): installation, client configuration, HTTP gateway and troubleshooting.
+- [Reference](docs/reference.md): 51 tools, results, resources, prompts and coordinate pages.
+- [Prepared-route import](docs/prepared-import.md): exporter workflow, preview, approval, receipts and recovery.
 - [Prepared artifact format](docs/prepared-artifacts.md): the version 1 file handoff.
-
-Keep the same publication directory for each route set.
-See the import guide for receipts, blocked retries and recovery.
-Photos and full detail archives stay local.
-
-See the [development guide](docs/development.md) for an editable installation and tests.
+- [Development](docs/development.md): architecture, locked dependencies, offline tests and package checks.

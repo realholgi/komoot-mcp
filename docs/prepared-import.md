@@ -1,6 +1,6 @@
 # Import prepared routes
 
-[Project overview](../README.md) | [MCP setup](mcp-setup.md) | [Artifact format](prepared-artifacts.md)
+[Project overview](../README.md) | [MCP setup](mcp-setup.md) | [Reference](reference.md) | [Artifact format](prepared-artifacts.md)
 
 ## Use routes from hexatrek-exporter
 
@@ -45,6 +45,8 @@ komoot_preview_prepared(
 The preview checks referenced files, GPX coordinates, POI identities and Komoot's text and count limits.
 It lists the intended routes and reports pending operations, locks and incompatible receipts.
 It does not create directories, write records, authenticate or contact Komoot.
+Use local stdio for prepared files. HTTP rejects these filesystem tools.
+Preview remains available with `--read-only`.
 
 Read `data.ready` and `data.issues` from the MCP result.
 `ready=true` means that local checks passed. It does not verify the live account.
@@ -61,6 +63,7 @@ Keep that directory for retries and updates.
 The server uses its records to detect existing imports and requests with uncertain results.
 
 Publishing changes your Komoot account.
+Publication requires a server started without `--read-only`.
 Review and approve the prepared routes and operation before setting `confirmed=true`:
 
 ```text

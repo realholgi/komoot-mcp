@@ -88,15 +88,21 @@ def _result(payload, *, is_error=False):
     )
 
 
+def _rejected(code, message):
+    return _result({"ok": False, "error": {
+        "code": code, "message": message, "retry_safe": False,
+        "operation_state": "not_attempted",
+    }}, is_error=True)
+
+
 def _failure(error, *, read_only):
-    if isinstance(error, ToolError) and error.__cause__ is not None:
+    while isinstance(error, ToolError) and error.__cause__ is not None:
         error = error.__cause__
     status = getattr(error, "status_code", None)
     retry_safe = False
     state = "unchanged" if read_only else "unknown"
     if isinstance(error, ValidationError):
-        code = "invalid_input"
-        state = "not_attempted"
+        code = "internal_error"
     elif isinstance(error, PermissionError):
         code = "permission_denied"
     elif isinstance(error, FileNotFoundError):
@@ -116,7 +122,8 @@ def _failure(error, *, read_only):
         code = "invalid_input"
     else:
         code = "internal_error"
-    details = {"code": code, "message": str(error), "retry_safe": retry_safe,
+    message = "Tool execution failed" if code == "internal_error" else str(error)
+    details = {"code": code, "message": message, "retry_safe": retry_safe,
                "operation_state": state}
     if isinstance(status, int):
         details["status_code"] = status
@@ -126,24 +133,49 @@ def _failure(error, *, read_only):
 class KomootMCP(FastMCP):
     """Expose one result contract without changing internal handler payloads."""
 
+    def __init__(self, *args, read_only=False, **kwargs):
+        if not isinstance(read_only, bool):
+            raise ValueError("read_only must be a boolean")
+        self.read_only = read_only
+        super().__init__(*args, **kwargs)
+
     def _setup_handlers(self):
         super()._setup_handlers()
         self._mcp_server.call_tool(validate_input=False)(self._call_structured_tool)
 
     async def list_tools(self):
         tools = await super().list_tools()
+        if self.read_only:
+            tools = [tool for tool in tools if ANNOTATIONS[tool.name].readOnlyHint is True]
         for tool in tools:
+            tool.inputSchema["additionalProperties"] = False
             tool.annotations = ANNOTATIONS[tool.name]
             tool.outputSchema = RESULT_SCHEMA
         return tools
 
     async def _call_structured_tool(self, name, arguments):
         policy = ANNOTATIONS.get(name)
-        if policy is None:
-            return _result({"ok": False, "error": {
-                "code": "unknown_tool", "message": f"Unknown tool: {name}",
-                "retry_safe": False, "operation_state": "not_attempted",
-            }}, is_error=True)
+        tool = self._tool_manager.get_tool(name)
+        if policy is None or tool is None:
+            return _rejected("unknown_tool", f"Unknown tool: {name}")
+        if self.read_only and policy.readOnlyHint is not True:
+            return _rejected("permission_denied", f"Tool is disabled in read-only mode: {name}")
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            return _rejected("invalid_input", "Tool arguments must be an object")
+        unknown = set(arguments) - set(tool.parameters.get("properties", {}))
+        if unknown:
+            return _rejected("unknown_parameters", "Unknown parameters: " + ", ".join(sorted(unknown)))
+        try:
+            # Validate before entering the handler, where failures can follow account changes.
+            tool.fn_metadata.arg_model.model_validate(tool.fn_metadata.pre_parse_json(arguments))
+        except ValidationError as error:
+            message = "; ".join(
+                ".".join(str(part) for part in item["loc"]) + ": " + item["msg"]
+                for item in error.errors(include_input=False, include_context=False, include_url=False)
+            )
+            return _rejected("invalid_input", message)
         try:
             # Execute before SDK content conversion so geometry is serialized only once.
             data = await self._tool_manager.call_tool(

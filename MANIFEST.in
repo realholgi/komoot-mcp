@@ -1,2 +1,9 @@
 recursive-include docs *.md
 include tests/conftest.py
+include uv.lock
+exclude .env .env.* .netrc credentials.json komoot_credentials.json
+prune .omp
+prune data
+prune exports
+prune publications
+global-exclude __pycache__ *.py[cod]

@@ -12,6 +12,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from komoot_mcp.protocol import KomootMCP
+from komoot_mcp import guidance
 
 from komoot_mcp.tools import (
     auth_tools,
@@ -30,10 +31,12 @@ from komoot_mcp.tools import (
 )
 
 
-def create_server(host="127.0.0.1", port=8000):
+def create_server(host="127.0.0.1", port=8000, *, read_only=False):
     """Create the Komoot server with per-request account state."""
     mcp = KomootMCP(
         "komoot-mcp",
+        read_only=read_only,
+        instructions=guidance.SERVER_INSTRUCTIONS,
         host=host,
         port=port,
         streamable_http_path="/mcp",
@@ -57,6 +60,7 @@ def create_server(host="127.0.0.1", port=8000):
     extended_discovery_tools.register(mcp)
     native_routing_tools.register(mcp)
     publication_tools.register(mcp)
+    guidance.register(mcp)
     return mcp
 
 
@@ -94,9 +98,13 @@ def main():
     parser.add_argument("--transport", default="stdio", choices=["stdio", "http"])
     parser.add_argument("--port", type=int, default=int(os.environ.get("MCP_PORT", "3007")))
     parser.add_argument("--host", default=os.environ.get("MCP_HOST", "127.0.0.1"))
+    parser.add_argument(
+        "--read-only", action="store_true",
+        help="Offer only read-only tools and reject all other tool calls",
+    )
     args = parser.parse_args()
 
-    mcp = create_server(host=args.host, port=args.port)
+    mcp = create_server(host=args.host, port=args.port, read_only=args.read_only)
     if args.transport == "http":
         _run_http(mcp)
     else:

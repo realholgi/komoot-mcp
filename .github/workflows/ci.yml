@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-
+  workflow_call:
 permissions:
   contents: read
 
@@ -16,9 +16,80 @@ jobs:
         python-version: ['3.11', '3.14']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v7
         with:
-          python-version: ${{ matrix.python-version }}
-      - run: python -m pip install '.[dev]'
-      - run: python -m pytest tests
-      - run: komoot-mcp --help
+          version: '0.13.9'
+          enable-cache: true
+      - run: uv sync --locked --extra dev --python '${{ matrix.python-version }}'
+      - run: uv run --locked --extra dev python -m pytest tests
+      - run: uv run --locked --extra dev komoot-mcp --help
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.13.9'
+          enable-cache: true
+      - run: uv sync --locked --extra dev --python '3.11'
+      - name: Build source archive and wheel from that archive
+        run: |
+          uv build --sdist --out-dir dist
+          uv build --wheel dist/*.tar.gz --out-dir dist
+          uv run --locked --extra dev python -m twine check dist/*.whl dist/*.tar.gz
+      - name: Smoke-test the installed wheel without account access
+        run: |
+          uv venv --python '3.11' "$RUNNER_TEMP/wheel-smoke"
+          uv pip install --python "$RUNNER_TEMP/wheel-smoke/bin/python" dist/*.whl
+          "$RUNNER_TEMP/wheel-smoke/bin/komoot-mcp" --help
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-smoke/bin/python" - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          import anyio
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          async def smoke():
+              executable = Path(os.environ["RUNNER_TEMP"]) / "wheel-smoke/bin/komoot-mcp"
+              server = StdioServerParameters(command=str(executable), args=["--read-only"])
+              with anyio.fail_after(30):
+                  async with stdio_client(server) as (read, write):
+                      async with ClientSession(read, write) as session:
+                          await session.initialize()
+                          tools = (await session.list_tools()).tools
+                          assert tools and all(
+                              tool.annotations is not None and tool.annotations.readOnlyHint is True
+                              for tool in tools
+                          )
+                          resources = (await session.list_resources()).resources
+                          assert {"komoot://capabilities", "komoot://reference"} <= {
+                              str(resource.uri) for resource in resources
+                          }
+                          capabilities = await session.read_resource("komoot://capabilities")
+                          payload = json.loads(capabilities.contents[0].text)
+                          assert payload["read_only"] is True
+                          assert set(payload["offered_tools"]) == {tool.name for tool in tools}
+                          await session.read_resource("komoot://reference")
+                          prompts = (await session.list_prompts()).prompts
+                          assert {"plan_route", "review_prepared_import"} <= {
+                              prompt.name for prompt in prompts
+                          }
+
+          anyio.run(smoke)
+          PY
+      - name: Generate distribution checksums
+        working-directory: dist
+        run: sha256sum *.whl *.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error

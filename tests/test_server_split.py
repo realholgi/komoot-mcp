@@ -72,7 +72,8 @@ async def test_importer_preserves_exact_komoot_catalog():
 
 
 @pytest.mark.parametrize("transport", ["stdio", "http"])
-def test_importer_main_preserves_transport_options(monkeypatch, transport):
+@pytest.mark.parametrize("read_only", [False, True])
+def test_importer_main_preserves_transport_options(monkeypatch, transport, read_only):
     mcp = Mock()
     create = Mock(return_value=mcp)
     run_http = Mock()
@@ -80,10 +81,12 @@ def test_importer_main_preserves_transport_options(monkeypatch, transport):
         "komoot-mcp", "--transport", transport,
         "--host", "0.0.0.0", "--port", "4321",
     ])
+    if read_only:
+        monkeypatch.setattr(sys, "argv", [*sys.argv, "--read-only"])
     monkeypatch.setattr(server, "create_server", create)
     monkeypatch.setattr(server, "_run_http", run_http)
     server.main()
-    create.assert_called_once_with(host="0.0.0.0", port=4321)
+    create.assert_called_once_with(host="0.0.0.0", port=4321, read_only=read_only)
     if transport == "http":
         run_http.assert_called_once_with(mcp)
         mcp.run.assert_not_called()
