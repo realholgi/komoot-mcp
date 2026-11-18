@@ -4,34 +4,44 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: Linux tests on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.11', '3.14']
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           version: '0.13.9'
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --locked --extra dev --python '${{ matrix.python-version }}'
       - run: uv run --locked --extra dev python -m pytest tests
       - run: uv run --locked --extra dev komoot-mcp --help
 
   package:
+    name: Linux package verification
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           version: '0.13.9'
+          python-version: '3.11'
           enable-cache: true
       - run: uv sync --locked --extra dev --python '3.11'
       - name: Build source archive and wheel from that archive
@@ -85,7 +95,7 @@ jobs:
       - name: Generate distribution checksums
         working-directory: dist
         run: sha256sum *.whl *.tar.gz > SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: distributions
           path: |
@@ -93,3 +103,4 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
           if-no-files-found: error
+          retention-days: 7

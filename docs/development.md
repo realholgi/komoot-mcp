@@ -103,10 +103,15 @@ uv pip install --python .venv-wheel/bin/python "dist/komoot_mcp-<version>-py3-no
 ```
 
 Replace `<version>` with the package version.
-The CI workflow tests Python 3.11 and 3.14.
-It checks distribution metadata and the installed wheel's read-only MCP discovery.
-That smoke check reads metadata without account or network changes.
-CI retains the tested wheel, source archive and `SHA256SUMS` together.
+The [CI workflow](https://github.com/realholgi/komoot-mcp/blob/main/.github/workflows/ci.yml) tests Python 3.11 and 3.14 on Linux.
+It runs on main-branch pushes, pull requests and manual requests.
+After the tests pass, Linux builds and checks the distributions.
+It then installs the wheel and checks read-only MCP discovery without account or network changes.
+CI retains the tested wheel, source archive and `SHA256SUMS` for seven days.
+
+The [release workflow](https://github.com/realholgi/komoot-mcp/blob/main/.github/workflows/release.yml) checks that the tag matches the package version.
+It reuses CI and attaches those tested files to a draft GitHub release.
+Release notes come from GitHub. This workflow does not publish to PyPI.
 
 ## Contributor workflow
 

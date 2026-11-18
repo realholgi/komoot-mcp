@@ -1,5 +1,7 @@
 # komoot-mcp
 
+[![CI](https://github.com/realholgi/komoot-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/realholgi/komoot-mcp/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue)](pyproject.toml)
+
 An independent [MCP](https://modelcontextprotocol.io) server for Komoot tours and route planning.
 
 Browse tours and highlights, download GPX/FIT files, or plan routes with Komoot's native planner.
@@ -50,8 +52,12 @@ Use the client's tool discovery for current argument schemas.
 
 ## Documentation
 
-- [MCP setup](docs/mcp-setup.md): installation, client configuration, HTTP gateway and troubleshooting.
-- [Reference](docs/reference.md): 51 tools, results, resources, prompts and coordinate pages.
-- [Prepared-route import](docs/prepared-import.md): exporter workflow, preview, approval, receipts and recovery.
-- [Prepared artifact format](docs/prepared-artifacts.md): the version 1 file handoff.
-- [Development](docs/development.md): architecture, locked dependencies, offline tests and package checks.
+| Guide | Contents |
+| --- | --- |
+| [MCP setup](docs/mcp-setup.md) | Installation, client configuration, HTTP gateway and troubleshooting |
+| [Reference](docs/reference.md) | 51 tools, results, resources, prompts and coordinate pages |
+| [Prepared-route import](docs/prepared-import.md) | Exporter workflow, preview, approval, receipts and recovery |
+| [Prepared artifact format](docs/prepared-artifacts.md) | The version 1 file handoff |
+| [Development](docs/development.md) | Architecture, locked dependencies, offline tests and package checks |
+
+Report bugs in [GitHub Issues](https://github.com/realholgi/komoot-mcp/issues) with synthetic GPX files and no credentials.
