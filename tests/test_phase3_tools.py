@@ -256,7 +256,7 @@ async def test_replace_planned_route_uses_put_and_two_readbacks(registered_tools
         _make_response(json_body={**route, **current}),
         _make_response(json_body={"items": [[49, 8], [50, 9]]}),
     ]) as request:
-        out = await registered_tools["komoot_update_planned_tour"](42, route, token)
+        out = await registered_tools["komoot_update_planned_tour"](42, preview_token=token, route_data=route)
     assert [call.kwargs["method"] for call in request.call_args_list] == ["GET", "GET", "PUT", "GET", "GET"]
     write = request.call_args_list[2].kwargs
     assert write["url"] == "https://api.komoot.de/v007/tours/42"

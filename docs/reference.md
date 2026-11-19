@@ -357,11 +357,17 @@ Unresolved candidates remain in the result. The tool does not choose a place for
 
 | Tool | Behavior |
 | --- | --- |
-| `komoot_plan_native_route` | Plan through ordered coordinates without saving. Return full route data |
-| `komoot_import_gpx_route` | Import GPX into route data for a separate save step |
-| `komoot_create_planned_tour` | Save route data from planning or GPX import |
+| `komoot_plan_native_route` | Plan through ordered coordinates. Return a compact preview and route reference |
+| `komoot_import_gpx_route` | Import GPX. Return a compact preview and route reference |
+| `komoot_create_planned_tour` | Save the exact route from a reference or full route data |
 | `komoot_plan_and_save_tour` | Plan from coordinates and save |
 | `komoot_plan_and_upload` | Plan from place names or `lat,lng` strings and save |
+
+After approval, pass the preview's `route_ref` to `komoot_create_planned_tour`.
+References expire after 900 seconds. Use the same server instance, credentials, and transport.
+If a reference is unavailable, preview the route again.
+If requests cannot reach the same instance, set `include_route_data=true` and pass the full route as `route_data`.
+Supply exactly one of `route_ref` or `route_data`. Reusing a reference can create another tour.
 
 For a roundtrip, supply intermediate points and set `roundtrip: true` to return to the start.
 If start and end already have identical latitude and longitude, native roundtrip mode activates automatically, even with `roundtrip: false`.
@@ -431,14 +437,16 @@ Its `pace` reports distance, duration in seconds, a readable duration, average s
 Missing or invalid durations produce no calculated speed.
 The public English planner verified five presets for six sports on 2026-11-18.
 See [pace label verification](pace-verification.md) for the mappings and observations.
-Readable `warnings` retain their native code, raw entry, and coordinate-index spans.
+Readable `warnings` retain their native code and coordinate-index spans.
+Compact route previews omit raw warning entries.
 `information` contains protection-area notices separately from warnings.
 Unknown warning codes stay visible and are marked unknown.
 These summaries do not change the route or claim that current access restrictions were checked.
 
 `komoot_compare_route_variants` calculates shortest, scenic, and quiet routes without saving.
 Each variant keeps the same input points, sport, fitness, avoidance, and pauses.
-Results include full routes and distance, elevation, and duration differences from shortest.
+Each result includes a compact preview, a route reference, and differences from shortest.
+Set `include_route_data=true` for full routes without references.
 These preferences do not guarantee scenery, low traffic, or the shortest possible route.
 
 `komoot_plan_native_route`, `komoot_plan_and_save_tour`, and the variant tool accept `waypoint_stays_s`.
@@ -471,10 +479,11 @@ It needs no server model API key. Prepared-artifact import does not use sampling
 
 Resolving a share URL reads data. Creating or revoking a link changes sharing.
 
-`komoot_update_planned_tour(tour_id, route_data, preview_token)` replaces a planned route under its existing ID.
-Plan or import the replacement first. Then call `komoot_preview_tour_update(tour_id, route_data)`.
+`komoot_update_planned_tour` replaces a planned route under its existing ID.
+Plan or import the replacement first. Then call `komoot_preview_tour_update` with `tour_id` and `route_ref`.
 The preview shows signed distance, elevation, and duration differences, plus ordered POI changes.
-Pass its `preview_token` and the same full `route_data` to the update tool.
+After approval, pass its `preview_token` and the same `route_ref` to the update tool.
+Both tools accept full `route_data` instead of `route_ref`. Supply exactly one.
 The client reads tour metadata and coordinates again before writing.
 If the tour, target ID, or replacement changed, it returns `preview_conflict` without writing.
 Review a new preview before approving the update.

@@ -80,6 +80,11 @@ async def test_resources_report_effective_policy_without_io(read_only, http, for
         assert paging["default_limit"] == 500
         assert paging["maximum_limit"] == 1000
         assert reference["sport_profiles"] == NATIVE_SPORT_PROFILES
+        assert reference["route_references"] == {
+            "ttl_s": 900,
+            "scope": "Same server instance, credentials, and transport.",
+            "full_route_opt_in": "include_route_data=true",
+        }
         assert reference["prepared_artifacts"]["maximum_named_pois_per_route"] == 512
         assert reference["prepared_artifacts"]["poi_name_maximum_utf16_units"] == 30
         assert reference["prepared_artifacts"]["poi_description_maximum_utf16_units"] == 250
@@ -109,17 +114,20 @@ async def test_prompts_are_discoverable_and_only_render_workflow(read_only, forb
     assert "mtb_easy" in plan
     assert "[lat, lng]" in plan
     assert "komoot_plan_native_route" in plan
+    assert "compact preview" in plan
     assert "komoot_preview_prepared" in review
     assert "~/unresolved/prepared.json" in review
     assert '"update": true' in review
     assert "confirmed=true" not in review
     if read_only:
         assert "komoot_create_planned_tour" not in plan
+        assert "route_ref" not in plan
         assert "komoot_publish_prepared" not in review
         assert "Stop after the preview" in plan
         assert "Stop after the preview" in review
     else:
         assert "explicit user approval" in plan
+        assert "pass route_ref to komoot_create_planned_tour" in plan
         assert "explicit user approval" in review
         assert "not approval" in plan
         assert "grants no approval" in review

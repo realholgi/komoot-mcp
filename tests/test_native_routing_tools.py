@@ -52,7 +52,7 @@ def handlers(monkeypatch):
 async def test_import_transmits_names_comments_and_matches_without_saving(handlers):
     functions, client = handlers
     gpx = '<gpx version="1.1"><wpt lat="49" lon="8"><name>Fontaine</name><desc>Still working</desc></wpt></gpx>'
-    result = await functions["komoot_import_gpx_route"](gpx)
+    result = await functions["komoot_import_gpx_route"](gpx, include_route_data=True)
     sent = client._http_request.call_args
     assert sent.args == ("POST", "https://www.komoot.com/api/routing/import/files/")
     assert sent.kwargs["data"] == gpx.encode("utf-8")
@@ -112,7 +112,7 @@ async def test_update_uses_existing_id_and_preview_without_planning(handlers, mo
     monkeypatch.setattr(routing, "KomootNativePlanner", planner)
     route = {"sport": "hike", "constitution": 3, "distance": 1200,
              "path": [{"reference": "poi:Ab12"}, {"reference": "hlp:25"}]}
-    result = await functions["komoot_update_planned_tour"](42, route, "preview")
+    result = await functions["komoot_update_planned_tour"](42, preview_token="preview", route_data=route)
     client.update_planned_tour.assert_awaited_once_with(42, route, "preview")
     client.save_planned_tour.assert_not_awaited()
     planner.assert_not_called()
@@ -163,7 +163,9 @@ async def test_coordinate_planning_resolves_sports_and_preserves_full_route(hand
     planner = Mock()
     planner.plan.return_value = route
     monkeypatch.setattr(routing, "KomootNativePlanner", Mock(return_value=planner))
-    result = await functions["komoot_plan_native_route"]([[49, 8], [49.1, 8.1]], sport=sport)
+    result = await functions["komoot_plan_native_route"](
+        [[49, 8], [49.1, 8.1]], sport=sport, include_route_data=True,
+    )
     assert result is route
     assert planner.plan.call_args.args[1] == profile
     client.rl.acquire.assert_awaited_once()
@@ -294,7 +296,7 @@ async def test_import_hydrates_custom_references_for_persistence_without_renamin
              "name": "Test-Start", "description": "Test-Start kommentar", "category": 0},
         ]},
     }}}
-    route = await functions["komoot_import_gpx_route"]('<gpx version="1.1"/>')
+    route = await functions["komoot_import_gpx_route"]('<gpx version="1.1"/>', include_route_data=True)
     assert route["path"] == [
         {"location": start_location, "index": 0},
         {"location": start_location, "index": 0, "reference": "cnw:9",
@@ -324,7 +326,9 @@ async def test_import_can_keep_original_track_instead_of_network_matching(handle
         "matched": {"distance": 300, "path": [{"index": 0, "location": {"lat": 49, "lng": 8}}]},
         "original": {"distance": 200, "path": [{"index": 0, "location": {"lat": 49.1, "lng": 8.1}}]},
     }}
-    route = await functions["komoot_import_gpx_route"]('<gpx version="1.1"/>', match_route=False)
+    route = await functions["komoot_import_gpx_route"](
+        '<gpx version="1.1"/>', match_route=False, include_route_data=True,
+    )
     assert route["distance"] == 200
     assert route["path"] == [{"index": 0, "location": {"lat": 49.1, "lng": 8.1}}]
 
@@ -379,7 +383,7 @@ async def test_import_preserves_poi_types_existing_symbols_and_full_track(handle
 
     client._http_request.side_effect = import_file
     client._komoot_post.side_effect = match_file
-    route = await functions["komoot_import_gpx_route"](gpx, match_route=False)
+    route = await functions["komoot_import_gpx_route"](gpx, match_route=False, include_route_data=True)
     assert [(p["name"], p["category"]) for p in route["path"]] == [
         ("Fontaine", 3), ("Auberge", 1001), ("Local shelter", 36), ("Abri", 1010),
     ]
@@ -423,7 +427,7 @@ async def test_named_coordinate_tools_keep_names_after_snapping_and_save(handler
     response.json.return_value = response_route
     post = Mock(return_value=response)
     monkeypatch.setattr(routing.secure_http, "post", post)
-    options = {"name": "Named loop"} if tool_name == "komoot_plan_and_save_tour" else {}
+    options = {"name": "Named loop"} if tool_name == "komoot_plan_and_save_tour" else {"include_route_data": True}
     result = await functions[tool_name](
         [[49, 8], [49.1, 8.1]], roundtrip=True,
         waypoint_names=["Station", "Lookout"], **options,
@@ -485,7 +489,7 @@ async def test_gpx_track_endpoint_names_survive_import_and_save(handlers, match_
       <trkpt lat="49" lon="8"><name>Railway station</name><desc>North entrance</desc></trkpt>
       <trkpt lat="49.1" lon="8.1"><name>Trailhead</name></trkpt>
     </trkseg></trk></gpx>"""
-    imported = await functions["komoot_import_gpx_route"](gpx, match_route=match_route)
+    imported = await functions["komoot_import_gpx_route"](gpx, match_route=match_route, include_route_data=True)
     await functions["komoot_create_planned_tour"](imported, name="Endpoint names")
     saved = client.save_planned_tour.call_args.args[0]
     assert [point["name"] for point in saved["path"]] == ["Railway station", "Trailhead"]
@@ -677,7 +681,7 @@ async def test_equal_endpoints_enable_native_roundtrip_without_extra_leg(
     post = Mock(return_value=response)
     monkeypatch.setattr(routing.secure_http, "post", post)
     result = await functions["komoot_plan_native_route"](
-        coordinates, waypoint_names=["Start", "Lookout", "Finish"],
+        coordinates, waypoint_names=["Start", "Lookout", "Finish"], include_route_data=True,
     )
     sent = post.call_args.kwargs["json"]
     assert sent["path"][-1]["reference"] == closing_reference
@@ -699,7 +703,7 @@ async def test_closed_gpx_import_marks_return_without_changing_geometry(handlers
         ],
         "_embedded": {"coordinates": {"items": coordinates}},
     }}}
-    route = await functions["komoot_import_gpx_route"]('<gpx version="1.1"/>')
+    route = await functions["komoot_import_gpx_route"]('<gpx version="1.1"/>', include_route_data=True)
     assert route["path"][-1]["reference"] == "special:back"
     assert route["path"][-1]["index"] == 2
     assert len(route["path"]) == 3
