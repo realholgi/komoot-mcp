@@ -28,6 +28,7 @@ To select the minimum supported Python explicitly, add `--python 3.11`.
 | `src/komoot_mcp/middleware.py` | Gateway authentication and per-request credentials |
 | `src/komoot_mcp/auth.py` | Komoot login and session state |
 | `src/komoot_mcp/client.py` | Komoot request and response handling |
+| `src/komoot_mcp/collections.py` | Owned collection metadata, complete member replacement and read-back checks |
 | `src/komoot_mcp/secure_http.py` | Direct HTTP transport policy |
 | `src/komoot_mcp/routing.py` | Native planning, coordinate checks and save results |
 | `src/komoot_mcp/gpx_import.py` | GPX import into route data |

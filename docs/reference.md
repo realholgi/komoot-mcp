@@ -181,7 +181,7 @@ These tools send selected route coordinates to `overpass-api.de` without account
 Bivouac searches also request public elevation tiles from `elevation-tiles-prod.s3.amazonaws.com`.
 Responses retain OSM attribution and source coverage. The tools make no bookings and write no local files.
 
-### Discovery, highlights and collections (17)
+### Discovery and highlights (15)
 
 - `komoot_recommend_tours_near`
 - `komoot_smart_tours_near`
@@ -195,8 +195,6 @@ Responses retain OSM attribution and source coverage. The tools make no bookings
 - `komoot_get_smart_tour`
 - `komoot_get_highlight_images`
 - `komoot_get_highlight_tips`
-- `komoot_get_collection`
-- `komoot_get_collection_tours`
 - `komoot_get_poi_external_reviews`
 - `komoot_get_highlight_content`
 - `komoot_search_thematic_tours`
@@ -221,6 +219,61 @@ Unavailable filters fail instead of being ignored. Search results retain native 
 Suitability tags do not guarantee safe conditions or legal access with a dog.
 Filtered discovery sends `route_attributes` to the tour result endpoint.
 The `/route_attributes/` endpoint returns available filters and counts, not tour records.
+
+### Collections (9)
+
+| Tool | Behavior |
+| --- | --- |
+| `komoot_list_collections` | List your own created collections, with optional `name` and `status` filters |
+| `komoot_get_collection` | Read collection metadata by `collection_id` |
+| `komoot_get_collection_tours` | Read one native member page, including Highlights |
+| `komoot_create_collection` | Create an ordinary personal collection with optional ordered `tour_ids` |
+| `komoot_modify_collection` | Change supplied `name`, `description`, or `status` fields |
+| `komoot_delete_collection` | Delete the collection without deleting its tours or Highlights |
+| `komoot_add_collection_tours` | Append a batch of `tour_ids` in the supplied order |
+| `komoot_remove_collection_tours` | Remove a batch of tour memberships by `tour_ids` |
+| `komoot_reorder_collection_tours` | Set the complete tour order with an exact `tour_ids` list |
+
+Collection writes require explicit approval for the exact target and changes.
+Changes to existing collections require ownership by the authenticated user.
+Creation accepts `name`, optional `description`, `status`, and `tour_ids`.
+Visibility defaults to `private`. Other supported values are `friends` and `public`.
+Omit `tour_ids` to create an empty collection.
+Creation uses `collection_personal` and does not create tours or copy photos.
+
+Metadata updates send only supplied fields. `description` maps to Komoot's `intro_plain`.
+An empty description clears the introduction.
+The tools do not propagate collection visibility to contained tours.
+Removing memberships and deleting collections do not delete the referenced tours or Highlights.
+Reads and metadata updates support special `multi_day=true` collections.
+Add, remove, and reorder reject them before writing.
+
+Add and remove accept nonempty batches of distinct positive tour IDs.
+Already present tours keep their positions during add.
+Remove deletes all occurrences of the selected tours from the collection, not Highlights with matching IDs.
+Reorder requires every current tour ID exactly once, in the approved order.
+All membership changes preserve existing resource types and non-target members.
+Tour-only reorder keeps Highlights in their existing slots.
+
+`komoot_list_collections` uses a zero-based `page` and reads your created elements, not saved community collections.
+Results exclude guides and records owned by other users.
+Native page totals still count created elements, including excluded guides.
+Inspect subsequent pages even when one page contains no collections.
+`komoot_get_collection_tours` retains native types, ordering, and pagination.
+Membership writes read every page through trusted next links for the same compilation.
+They do not infer completeness from synthetic totals.
+
+Membership changes replace the full compilation.
+Concurrent edits, including changes between pages, can be overwritten.
+Readback verification does not make the replacement atomic.
+Writes read back metadata, membership, order, or deletion as applicable.
+Errors retain `collection_id` when known.
+After an `unknown` or `applied` error, inspect the collection before retrying.
+For an uncertain create without an ID, list your created collections first.
+The tools do not retry writes automatically.
+
+The wire models come from Komoot's [shipped web application](https://www.komoot.com/assets/main.4aa1c01d52651411.js).
+Static source verification does not establish live write success. No live collection mutations were used during development.
 
 ### Private places (4)
 

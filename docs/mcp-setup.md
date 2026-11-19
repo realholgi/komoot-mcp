@@ -15,6 +15,22 @@ komoot-mcp --help
 
 For an editable installation, see [Development](development.md).
 
+### Keep a development checkout connected
+
+A client that starts a `uv tool` installation does not use your checkout automatically.
+Link that installation to the checkout when you develop the server:
+
+```bash
+uv tool install --force --editable --python 3.11 .
+```
+
+The configured `komoot-mcp` command then imports code from this checkout.
+Keep the checkout at the same path.
+After code changes, reconnect the MCP server to reload its code and tool catalog.
+In OMP, use `/mcp reconnect komoot-mcp`.
+Use `/mcp reload` if you changed the server configuration.
+
+
 ## Install a downloaded wheel
 
 No releases have been published yet.

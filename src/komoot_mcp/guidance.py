@@ -21,6 +21,8 @@ SERVER_INSTRUCTIONS = (
     "(tent, bivouac, accommodation); multiple modes mean OR. Ask first if modes are unspecified. "
     "These tools disclose route windows to anonymous Overpass queries; bivouac also reads AWS terrain tiles. "
     "Terrain candidates are inspection areas, not confirmed level sleeping spots or permission to bivouac. "
+    "Collection approvals cover only the specified metadata or membership changes, never implicit "
+    "tour visibility updates or tour deletion. "
     "Preview plans and prepared imports first. Obtain explicit user approval for the exact "
     "account or file changes before a write; a prompt never grants approval. Do not retry "
     "a mutation when its outcome is uncertain; reconcile it first. Report only observed "

@@ -37,7 +37,8 @@ def _iso_date(value, end_of_day=False):
 
 class KomootAPIError(Exception):
     def __init__(self, message, status_code=None, body="", *, tour_id=None,
-                 confirmed_changes=None, operation_state=None, code=None, place_id=None):
+                 confirmed_changes=None, operation_state=None, code=None, place_id=None,
+                 collection_id=None):
         super().__init__(message)
         self.status_code = status_code
         self.body = body
@@ -46,6 +47,7 @@ class KomootAPIError(Exception):
         self.operation_state = operation_state
         self.code = code
         self.place_id = place_id
+        self.collection_id = collection_id
 
 class KomootClient:
     def __init__(self, auth_manager, rate_limiter):
