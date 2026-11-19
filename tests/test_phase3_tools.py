@@ -185,6 +185,94 @@ async def test_modify_tour_extended(registered_tools, auth_token):
     assert out == {"tour_id": 42, "updated_fields": {"name": "new", "description": "d"}, "result": body}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tour_type,field", [("tour_planned", "duration"), ("tour_recorded", "time_in_motion")],
+)
+async def test_modify_average_speed_preserves_geometry(
+    registered_tools, auth_token, tour_type, field,
+):
+    from komoot_mcp.context import get_client
+    _stub_kompy_auth(get_client())
+    current = {
+        "id": 42, "type": tour_type, "distance": 10000, "duration": 7200,
+        "time_in_motion": 6000, "path": [{"location": {"lat": 48, "lng": 8}}],
+    }
+    saved = {**current, field: 3600}
+    responses = [
+        _make_response(json_body=current),
+        _make_response(status=204, text=""),
+        _make_response(json_body=saved),
+    ]
+    with patch("komoot_mcp.client.requests.request", side_effect=responses) as request:
+        out = await registered_tools["komoot_modify_tour_extended"](42, speed_kmh=10)
+    assert [call.kwargs["method"] for call in request.call_args_list] == ["GET", "PATCH", "GET"]
+    assert request.call_args_list[1].kwargs["json"] == {field: 3600}
+    assert out["result"] == saved
+
+
+@pytest.mark.asyncio
+async def test_modify_explicit_timing_and_fitness(registered_tools, auth_token):
+    from komoot_mcp.context import get_client
+    _stub_kompy_auth(get_client())
+    current = {"id": 42, "type": "tour_planned", "duration": 7200, "constitution": 3}
+    saved = {**current, "duration": 5400, "constitution": 4, "name": "Summit"}
+    with patch("komoot_mcp.client.requests.request", side_effect=[
+        _make_response(json_body=current), _make_response(json_body={}),
+        _make_response(json_body=saved),
+    ]) as request:
+        out = await registered_tools["komoot_modify_tour_extended"](
+            42, duration_s=5400, constitution=4, name="Summit",
+        )
+    assert request.call_args_list[1].kwargs["json"] == {
+        "duration": 5400, "constitution": 4, "name": "Summit",
+    }
+    assert out["result"]["constitution"] == 4
+
+
+@pytest.mark.asyncio
+async def test_modify_speed_detects_ignored_update(registered_tools, auth_token):
+    from komoot_mcp.client import KomootAPIError
+    from komoot_mcp.context import get_client
+    _stub_kompy_auth(get_client())
+    current = {"id": 42, "type": "tour_planned", "distance": 10000, "duration": 7200}
+    with _patch_request(json_body=current) as request:
+        with pytest.raises(KomootAPIError, match="readback differs for duration"):
+            await registered_tools["komoot_modify_tour_extended"](42, speed_kmh=10)
+    assert request.call_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fields", [
+    {"speed_kmh": 0}, {"speed_kmh": float("inf")}, {"speed_kmh": -1},
+    {"speed_kmh": 10, "duration_s": 3600}, {"duration_s": 0},
+    {"time_in_motion_s": -1}, {"constitution": 6},
+])
+async def test_modify_invalid_timing_never_requests(registered_tools, fields):
+    with patch("komoot_mcp.client.requests.request") as request:
+        with pytest.raises(ValueError):
+            await registered_tools["komoot_modify_tour_extended"](42, **fields)
+    request.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tour,fields", [
+    ({"type": "tour_recorded", "duration": 7200}, {"constitution": 4}),
+    ({"type": "tour_planned"}, {"time_in_motion_s": 3600}),
+    ({"type": "tour_recorded", "distance": 10000, "duration": 1800}, {"speed_kmh": 10}),
+    ({"type": "tour_recorded", "time_in_motion": 3600, "duration": 7200}, {"duration_s": 1800}),
+])
+async def test_modify_incompatible_timing_never_patches(
+    registered_tools, auth_token, tour, fields,
+):
+    from komoot_mcp.context import get_client
+    _stub_kompy_auth(get_client())
+    with _patch_request(json_body=tour) as request:
+        with pytest.raises(ValueError):
+            await registered_tools["komoot_modify_tour_extended"](42, **fields)
+    assert [call.kwargs["method"] for call in request.call_args_list] == ["GET"]
+
+
 # ----------------------------------------------------------------
 # Highlight tools (3)
 # ----------------------------------------------------------------

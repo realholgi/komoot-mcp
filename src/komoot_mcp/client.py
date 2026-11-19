@@ -22,6 +22,7 @@ HTTP. Rate limiting is awaited prior to each call.
 from __future__ import annotations
 
 import asyncio
+import math
 
 import kompy
 from komoot_mcp import secure_http as requests
@@ -880,13 +881,28 @@ class KomootClient:
 
     async def modify_tour_extended(
         self, tour_id, description=None, gear=None, date=None,
-        status=None, name=None, sport=None,
+        status=None, name=None, sport=None, speed_kmh=None,
+        duration_s=None, time_in_motion_s=None, constitution=None,
     ):
-        """``PATCH /v007/tours/{id}`` — extended field coverage.
-
-        Builds the JSON body from any non-None argument so callers can
-        update arbitrary subsets without clobbering existing fields.
-        """
+        """Patch supplied fields and verify changes to timing and fitness."""
+        for field, value in (("duration_s", duration_s), ("time_in_motion_s", time_in_motion_s)):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            ):
+                raise ValueError(f"{field} must be a positive integer")
+        if constitution is not None and (
+            isinstance(constitution, bool) or not isinstance(constitution, int)
+            or not 1 <= constitution <= 5
+        ):
+            raise ValueError("constitution must be an integer between 1 and 5")
+        if speed_kmh is not None:
+            if (isinstance(speed_kmh, bool) or not isinstance(speed_kmh, (int, float))
+                    or not math.isfinite(speed_kmh) or speed_kmh <= 0):
+                raise ValueError("speed_kmh must be a finite positive number")
+            if duration_s is not None or time_in_motion_s is not None:
+                raise ValueError("Specify speed_kmh or explicit times, not both")
+        if status is not None and status not in {"private", "friends", "public"}:
+            raise ValueError("status must be private, friends, or public")
         url = f"https://api.komoot.de/v007/tours/{int(tour_id)}"
         body = {}
         if description is not None:
@@ -901,9 +917,53 @@ class KomootClient:
             body["name"] = name
         if sport is not None:
             body["sport"] = sport
+        timing = {}
+        if duration_s is not None:
+            timing["duration"] = duration_s
+        if time_in_motion_s is not None:
+            timing["time_in_motion"] = time_in_motion_s
+        if constitution is not None:
+            timing["constitution"] = constitution
+        if timing or speed_kmh is not None:
+            current = await self._komoot_get(url)
+            tour_type = current.get("type")
+            if tour_type not in {"tour_planned", "tour_recorded"}:
+                raise KomootAPIError("Tour type is missing or unsupported; no update sent")
+            if constitution is not None and tour_type != "tour_planned":
+                raise ValueError("constitution applies only to planned tours")
+            if time_in_motion_s is not None and tour_type != "tour_recorded":
+                raise ValueError("time_in_motion_s applies only to recorded tours")
+            if speed_kmh is not None:
+                distance = current.get("distance")
+                if (isinstance(distance, bool) or not isinstance(distance, (int, float))
+                        or not math.isfinite(distance) or distance <= 0):
+                    raise KomootAPIError("Tour has no finite positive distance; no update sent")
+                seconds = distance * 3.6 / speed_kmh
+                if not math.isfinite(seconds):
+                    raise ValueError("speed_kmh produces an unsupported duration")
+                timing["duration" if tour_type == "tour_planned" else "time_in_motion"] = max(1, round(seconds))
+            if tour_type == "tour_recorded":
+                duration = timing.get("duration", current.get("duration"))
+                moving = timing.get("time_in_motion", current.get("time_in_motion"))
+                if (not isinstance(duration, (int, float)) or isinstance(duration, bool)
+                        or not math.isfinite(duration) or duration <= 0):
+                    raise KomootAPIError("Recorded tour has no valid duration; no update sent")
+                if moving is not None and moving > duration:
+                    raise ValueError("time_in_motion_s must not exceed the total duration")
+            body.update(timing)
         if not body:
             raise KomootAPIError("No fields to update")
-        return await self._komoot_patch(url, json_body=body)
+        result = await self._komoot_patch(url, json_body=body)
+        if timing:
+            verified = await self._komoot_get(url)
+            mismatches = [field for field, value in timing.items() if verified.get(field) != value]
+            if mismatches:
+                raise KomootAPIError(
+                    "Tour update sent but readback differs for "
+                    + ", ".join(mismatches) + "; inspect the tour before retrying"
+                )
+            return verified
+        return result
 
     # --- Highlights (Phase 3) --------------------------------------
 

@@ -91,18 +91,21 @@ def register(mcp):
         status: str = None,
         name: str = None,
         sport: str = None,
+        speed_kmh: float | None = None,
+        duration_s: int | None = None,
+        time_in_motion_s: int | None = None,
+        constitution: int | None = None,
     ) -> dict:
-        """Modify extended tour metadata (description, gear, date, etc.).
+        """Change tour metadata, average speed, timing, or fitness.
 
-        Wider field coverage than ``komoot_modify_tour`` — uses Komoot's
-        REST PATCH endpoint directly so we can update fields kompy
-        doesn't expose. Only non-None fields are sent in the PATCH body
-        so callers can update arbitrary subsets without clobbering
-        existing values.
-
-        Example: ``komoot_modify_tour_extended(tour_id=2614957086,
-        description="Sunny Schwarzwald loop", gear="MTB",
-        date="2026-05-18T08:00:00Z")``.
+        Changes the existing tour in the account. Only supplied fields change.
+        speed_kmh sets average speed from the current distance. For planned
+        tours it changes duration. For recorded tours it changes time in motion,
+        which must not exceed total duration. Times round to whole seconds.
+        Use speed_kmh or explicit times, not both. Geometry stays unchanged.
+        Timing and fitness changes are read back. A mismatch raises an error
+        after the write, so inspect the tour before retrying.
+        constitution stores fitness only. It does not recalculate duration.
 
         Args:
             tour_id: The numeric tour ID
@@ -112,14 +115,22 @@ def register(mcp):
             status: Visibility ('public', 'private', 'friends')
             name: New tour name
             sport: Sport type (e.g. 'hike', 'touringbicycle')
+            speed_kmh: Average speed in km/h, greater than zero
+            duration_s: Total duration in seconds, a positive integer
+            time_in_motion_s: Moving time in seconds, recorded tours only
+            constitution: Fitness from 1 to 5, planned tours only
         """
         result = await get_client().modify_tour_extended(
             tour_id, description=description, gear=gear, date=date,
             status=status, name=name, sport=sport,
+            speed_kmh=speed_kmh, duration_s=duration_s,
+            time_in_motion_s=time_in_motion_s, constitution=constitution,
         )
         return {"tour_id": tour_id, "updated_fields": {
             key: value for key, value in (
                 ("description", description), ("gear", gear), ("date", date),
                 ("status", status), ("name", name), ("sport", sport),
+                ("speed_kmh", speed_kmh), ("duration_s", duration_s),
+                ("time_in_motion_s", time_in_motion_s), ("constitution", constitution),
             ) if value is not None
         }, "result": result}
