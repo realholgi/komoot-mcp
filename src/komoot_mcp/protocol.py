@@ -26,6 +26,8 @@ _READ_ONLY = {
     "komoot_resolve_share_url", "komoot_find_highlights_nearby",
     "komoot_list_bookmarked_highlights", "komoot_get_smart_tour",
     "komoot_plan_native_route", "komoot_reverse_geocode",
+    "komoot_find_pois_nearby",
+    "komoot_resolve_place",
 }
 _CREATE = {
     "komoot_login", "komoot_upload_tour", "komoot_plan_and_upload",

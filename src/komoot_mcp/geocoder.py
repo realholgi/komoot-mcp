@@ -20,9 +20,12 @@ class Geocoder:
     def forward(
         self, query: str, limit: int = 5, lang: str | None = None,
         near_lat: float | None = None, near_lng: float | None = None,
+        osm_tag: str | None = None,
     ) -> list[dict]:
         self._wait()
         values = {"q": query, "limit": limit, "lang": lang, "lat": near_lat, "lon": near_lng}
+        if osm_tag is not None:
+            values["osm_tag"] = osm_tag
         params = urllib.parse.urlencode({k: v for k, v in values.items() if v is not None})
         url = f"https://photon.komoot.io/api/?{params}"
 
@@ -44,6 +47,9 @@ class Geocoder:
                 "city": props.get("city", props.get("name", "")),
                 "country": props.get("country", ""),
                 "osm_id": props.get("osm_id", ""),
+                "osm_type": props.get("osm_type", ""),
+                "osm_key": props.get("osm_key", ""),
+                "osm_value": props.get("osm_value", ""),
             })
         return results
 
@@ -73,4 +79,7 @@ class Geocoder:
             "city": props.get("city", props.get("name", "")),
             "country": props.get("country", ""),
             "osm_id": props.get("osm_id", ""),
+            "osm_type": props.get("osm_type", ""),
+            "osm_key": props.get("osm_key", ""),
+            "osm_value": props.get("osm_value", ""),
         }

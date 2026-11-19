@@ -3,6 +3,8 @@
 import asyncio
 
 from komoot_mcp.context import get_client, get_geocoder
+from komoot_mcp.context import get_rate_limiter
+from komoot_mcp.poi_search import find_pois_nearby, resolve_poi_candidate
 from komoot_mcp.routing import (
     native_sport, plan_native_route, saved_plan_result, validate_coordinates, validate_waypoint_names,
     RouteType, Avoidance, routing_tags, WaypointDetails, waypoint_metadata,
@@ -14,23 +16,90 @@ def register(mcp):
     async def komoot_geocode(
         query: str, limit: int = 5, lang: str | None = None,
         near_lat: float | None = None, near_lng: float | None = None,
+        osm_tag: str | None = None,
     ) -> dict:
         """Find places using Photon, or reverse-geocode a 'lat,lng' query.
 
         limit sets the maximum number of forward results. lang sets the
         result language; near_lat and near_lng bias forward results.
+        osm_tag filters forward results by an OSM tag, such as highway:bus_stop
+        or amenity:restaurant. It is not supported for coordinate queries.
         Returns the full location records, without display formatting.
         """
         geocoder = get_geocoder()
         coords = _parse_coords(query)
         if coords is not None:
+            if osm_tag is not None:
+                raise ValueError("osm_tag is only supported for forward place queries, not coordinates")
             result = await asyncio.to_thread(geocoder.reverse, *coords)
             return {"query": query, "results": [result]}
-        options = {"lang": lang, "near_lat": near_lat, "near_lng": near_lng}
+        options = {"lang": lang, "near_lat": near_lat, "near_lng": near_lng, "osm_tag": osm_tag}
         results = await asyncio.to_thread(
             geocoder.forward, query, limit,
             **{key: value for key, value in options.items() if value is not None},
         )
+        return {"query": query, "results": results}
+
+    @mcp.tool()
+    async def komoot_find_pois_nearby(
+        lat: float, lng: float, radius_m: int = 100, limit: int = 20, lang: str = "de",
+    ) -> dict:
+        """Find ordinary map POIs, such as bus stops, near coordinates.
+
+        Use komoot_geocode to find coordinates by name first. Results include
+        genuine Komoot poi_id values and waypoint_details for route planning.
+        Match osm_id to Photon osm_type + osm_id (N/369831410 becomes n369831410).
+        Some results have no poi_id and cannot be linked as a Komoot POI.
+        These are map POIs, not community highlights. No account access.
+        radius_m accepts 1–5000 metres; limit accepts 1–100.
+        """
+        await get_rate_limiter().acquire()
+        return await asyncio.to_thread(find_pois_nearby, lat, lng, radius_m, limit, lang)
+
+    @mcp.tool()
+    async def komoot_resolve_place(
+        query: str, limit: int = 5, lang: str = "de",
+        near_lat: float | None = None, near_lng: float | None = None,
+        osm_tag: str | None = None,
+    ) -> dict:
+        """Find places with Photon and resolve their exact Komoot POI identities.
+
+        limit accepts 1 to 10 candidates. near_lat and near_lng bias the search.
+        osm_tag filters Photon results, such as highway:bus_stop.
+        Each candidate keeps its Photon name, coordinates and OSM category.
+        resolution_status reports resolved, not_found, ambiguous, missing_poi_id,
+        missing_osm_identity, or invalid_location. Only resolved candidates have
+        poi_id and waypoint_details. komoot_matches retains exact OSM matches.
+        The tool never selects one place from several Photon candidates.
+        It uses public searches and does not access an account.
+        """
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
+            raise ValueError("limit must be an integer between 1 and 10")
+        if not query.strip():
+            raise ValueError("query must not be empty")
+        if (near_lat is None) != (near_lng is None):
+            raise ValueError("near_lat and near_lng must be supplied together")
+        if near_lat is not None:
+            near_lat, near_lng = validate_coordinates([[near_lat, near_lng]])[0]
+        limiter = get_rate_limiter()
+        await limiter.acquire()
+        candidates = await asyncio.to_thread(
+            get_geocoder().forward, query, limit=limit, lang=lang,
+            near_lat=near_lat, near_lng=near_lng, osm_tag=osm_tag,
+        )
+        results = []
+        for candidate in candidates[:limit]:
+            result = resolve_poi_candidate(candidate, [])
+            if result["komoot_osm_id"] is not None:
+                try:
+                    lat, lng = validate_coordinates([[candidate.get("lat"), candidate.get("lon")]])[0]
+                except ValueError:
+                    result["resolution_status"] = "invalid_location"
+                else:
+                    await limiter.acquire()
+                    nearby = await asyncio.to_thread(find_pois_nearby, lat, lng, 100, 100, lang)
+                    result = resolve_poi_candidate(candidate, nearby["results"])
+            results.append(result)
         return {"query": query, "results": results}
 
     @mcp.tool()
