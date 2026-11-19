@@ -74,6 +74,26 @@ async def test_bad_arguments_signal_error_without_reaching_komoot(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fields", [
+    {"date": "2019-09-14T06:51:17.602Z"},
+    {"date": "2019-09-14T06:51:17.602Z", "name": "Must not change"},
+])
+async def test_date_update_is_rejected_before_any_account_change(monkeypatch, fields):
+    forbidden = Mock(side_effect=AssertionError("Date update reached account code"))
+    monkeypatch.setattr(write_tools, "get_client", forbidden)
+    async with create_connected_server_and_client_session(create_server()) as session:
+        result = await session.call_tool(
+            "komoot_modify_tour_extended", {"tour_id": 42, **fields},
+        )
+    assert result.isError is True
+    assert result.structuredContent is not None
+    assert result.structuredContent["error"]["code"] == "unknown_parameters"
+    assert result.structuredContent["error"]["operation_state"] == "not_attempted"
+    assert "date" in result.structuredContent["error"]["message"]
+    forbidden.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_error_preserves_status_and_read_retry_safety(monkeypatch):
     client = Mock(get_tour=AsyncMock(side_effect=KomootAPIError("Too many requests", status_code=429)))
     monkeypatch.setattr(browse_tools, "get_client", lambda: client)

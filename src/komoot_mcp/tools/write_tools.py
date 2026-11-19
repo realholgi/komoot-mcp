@@ -91,7 +91,6 @@ def register(mcp):
         tour_id: int,
         description: str = None,
         gear: str = None,
-        date: str = None,
         status: str = None,
         name: str = None,
         sport: str = None,
@@ -110,12 +109,13 @@ def register(mcp):
         Timing and fitness changes are read back. A mismatch raises an error
         after the write, so inspect the tour before retrying.
         constitution stores fitness only. It does not recalculate duration.
+        Existing tour dates cannot be changed with this tool. Correct recorded
+        timestamps in the source GPX and import it as a new activity instead.
 
         Args:
             tour_id: The numeric tour ID
             description: Long-form description text
             gear: Gear / equipment used (string)
-            date: ISO-8601 date string (e.g. "2026-05-18T08:00:00Z")
             status: Visibility ('public', 'private', 'friends')
             name: New tour name
             sport: Sport type (e.g. 'hike', 'touringbicycle')
@@ -125,14 +125,14 @@ def register(mcp):
             constitution: Fitness from 1 to 5, planned tours only
         """
         result = await get_client().modify_tour_extended(
-            tour_id, description=description, gear=gear, date=date,
+            tour_id, description=description, gear=gear,
             status=status, name=name, sport=sport,
             speed_kmh=speed_kmh, duration_s=duration_s,
             time_in_motion_s=time_in_motion_s, constitution=constitution,
         )
         return {"tour_id": tour_id, "updated_fields": {
             key: value for key, value in (
-                ("description", description), ("gear", gear), ("date", date),
+                ("description", description), ("gear", gear),
                 ("status", status), ("name", name), ("sport", sport),
                 ("speed_kmh", speed_kmh), ("duration_s", duration_s),
                 ("time_in_motion_s", time_in_motion_s), ("constitution", constitution),

@@ -1023,7 +1023,7 @@ class KomootClient:
         return await self._komoot_delete(url)
 
     async def modify_tour_extended(
-        self, tour_id, description=None, gear=None, date=None,
+        self, tour_id, description=None, gear=None,
         status=None, name=None, sport=None, speed_kmh=None,
         duration_s=None, time_in_motion_s=None, constitution=None,
     ):
@@ -1052,8 +1052,6 @@ class KomootClient:
             body["description"] = description
         if gear is not None:
             body["gear"] = gear
-        if date is not None:
-            body["date"] = date
         if status is not None:
             body["status"] = status
         if name is not None:

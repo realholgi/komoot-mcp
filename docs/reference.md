@@ -369,7 +369,7 @@ Write errors include `tour_id` when known and `confirmed_changes` when available
 `unknown` means the write outcome is uncertain. Neither state permits an automatic retry.
 
 `komoot_modify_tour_extended` changes supplied fields without replacing route geometry.
-It accepts name, sport, visibility, description, gear and date, plus these values:
+It accepts name, sport, visibility, description and gear, plus these values:
 
 | Argument | Behavior |
 | --- | --- |
@@ -385,6 +385,12 @@ Moving time must not exceed total duration.
 Fitness changes do not recalculate duration.
 The tool reads timing and fitness fields back after the update.
 If Komoot returns different values, the tool raises an error. Inspect the tour before retrying.
+
+Tour dates are not editable with this tool.
+A `date` argument is rejected before any account change, even when supplied with other fields.
+For recorded activities, correct timestamps in the source GPX and import it as a new activity.
+Keep the original until you have preserved its photos and comments.
+See [Komoot's timestamp editing limits](https://support.komoot.com/hc/en-us/articles/10207928895386-Edit-completed-activities).
 
 For example, `komoot_modify_tour_extended(tour_id=42, speed_kmh=4.5)` requests an average speed of 4.5 km/h.
 
