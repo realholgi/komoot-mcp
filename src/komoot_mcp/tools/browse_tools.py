@@ -2,6 +2,7 @@
 
 
 from komoot_mcp.context import get_client
+from komoot_mcp.route_summary import route_summary
 
 
 def register(mcp):
@@ -58,11 +59,13 @@ def register(mcp):
         """
         tour = await get_client().get_tour(tour_id, share_token=share_token)
         if not compact:
-            return tour
-        return {key: tour[key] for key in (
+            return {**tour, "planning_summary": route_summary(tour)}
+        summary = {key: tour[key] for key in (
             "id", "name", "sport", "status", "distance", "elevation_up", "elevation_down",
             "duration", "date", "difficulty_grade", "difficulty_fitness", "difficulty_technical",
         ) if key in tour}
+        summary["planning_summary"] = route_summary(tour)
+        return summary
 
     @mcp.tool()
     async def komoot_get_tour_full(
@@ -81,7 +84,7 @@ def register(mcp):
         """
         data = await get_client().get_tour_full(tour_id, include_coordinates=include_coordinates)
         if not compact:
-            return data
+            return {**data, "planning_summary": route_summary(data)}
         summary = {key: data[key] for key in (
             "id", "name", "sport", "status", "date", "distance", "duration",
             "elevation_up", "elevation_down", "difficulty", "start_point",
@@ -109,6 +112,7 @@ def register(mcp):
             if isinstance(reference, dict) and reference.get("id") is not None:
                 highlights.append({key: reference[key] for key in ("id", "name") if key in reference})
         summary["highlights"] = highlights[:5]
+        summary["planning_summary"] = route_summary(data)
         return summary
 
     @mcp.tool()

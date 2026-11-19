@@ -46,7 +46,11 @@ async def test_full_tour_data_arrives_as_structured_content_not_encoded_json(mon
     async with create_connected_server_and_client_session(create_server()) as session:
         result = await session.call_tool("komoot_get_tour", {"tour_id": 42, "compact": False})
     assert result.isError is False
-    assert result.structuredContent == {"ok": True, "data": tour}
+    returned = result.structuredContent["data"]
+    assert result.structuredContent["ok"] is True
+    assert {key: returned[key] for key in tour} == tour
+    assert returned["planning_summary"]["pace"]["distance_m"] == 1234.5
+    assert returned["planning_summary"]["pace"]["duration_status"] == "missing"
     assert isinstance(result.content[0], TextContent)
     assert json.loads(result.content[0].text) == result.structuredContent
     client.get_tour.assert_awaited_once_with(42, share_token=None)
@@ -209,5 +213,8 @@ async def test_read_only_still_executes_allowed_reads(monkeypatch):
     async with create_connected_server_and_client_session(create_server(read_only=True)) as session:
         result = await session.call_tool("komoot_get_tour", {"tour_id": 42})
     assert result.isError is False
-    assert result.structuredContent == {"ok": True, "data": {"id": 42, "status": "private"}}
+    assert result.structuredContent["ok"] is True
+    assert result.structuredContent["data"]["id"] == 42
+    assert result.structuredContent["data"]["status"] == "private"
+    assert result.structuredContent["data"]["planning_summary"]["pace"]["duration_status"] == "missing"
     client.get_tour.assert_awaited_once()

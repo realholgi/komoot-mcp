@@ -447,11 +447,16 @@ async def test_full_and_compact_tour_modes_preserve_native_values(monkeypatch):
     )
     monkeypatch.setattr(browse_tools, "get_client", lambda: client)
     tools = _register_tools("browse_tools")
-    assert await tools["komoot_get_tour"](42, compact=False) == payload
+    from komoot_mcp.route_summary import route_summary
+    explained = {**payload, "planning_summary": route_summary(payload)}
+    assert await tools["komoot_get_tour"](42, compact=False) == explained
     client.get_tour.assert_awaited_once_with(42, share_token=None)
     compact = await tools["komoot_get_tour"](42)
-    assert compact == {"id": 42, "name": "Zero", "distance": 0, "duration": 0}
-    assert await tools["komoot_get_tour_full"](42, include_coordinates=False, compact=False) == payload
+    assert compact == {
+        "id": 42, "name": "Zero", "distance": 0, "duration": 0,
+        "planning_summary": route_summary(payload),
+    }
+    assert await tools["komoot_get_tour_full"](42, include_coordinates=False, compact=False) == explained
     client.get_tour_full.assert_awaited_once_with(42, include_coordinates=False)
     listed = await tools["komoot_list_tours"]()
     assert listed == {"tours": [{"id": 42, "name": "Zero", "distance": 0}], "page": {"number": 0}}

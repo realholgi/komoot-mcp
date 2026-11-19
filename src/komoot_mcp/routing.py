@@ -1,10 +1,13 @@
 import asyncio
 import math
 from numbers import Real
+from typing import Any, Literal, get_args
 
 import requests
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from komoot_mcp import secure_http
+from komoot_mcp.route_summary import route_summary
 
 
 class RoutingError(Exception):
@@ -66,7 +69,98 @@ def validate_coordinates(coordinates):
     return points
 
 
-async def plan_native_route(client, coordinates, sport="hike", constitution=3, roundtrip=False):
+RouteType = Literal["best", "quiet", "scenic", "shortest", "less_elevation", "technical"]
+Avoidance = Literal["ferries", "steps", "steep_hills", "rough_terrain"]
+_AVOIDANCE_TAGS = {
+    "ferries": "no_ferry", "steps": "no_steps",
+    "steep_hills": "no_steep", "rough_terrain": "no_poor",
+}
+
+
+def routing_tags(route_type="best", avoid=None):
+    """Map public preferences to the web planner's custom tags."""
+    if route_type not in get_args(RouteType):
+        raise ValueError("Unsupported route_type")
+    if avoid is not None and (
+        not isinstance(avoid, list)
+        or any(not isinstance(value, str) or value not in _AVOIDANCE_TAGS for value in avoid)
+    ):
+        raise ValueError("avoid must list ferries, steps, steep_hills, or rough_terrain")
+    tags = [] if route_type == "best" else [route_type]
+    for value in avoid or []:
+        tag = _AVOIDANCE_TAGS[value]
+        if tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def validate_waypoint_names(waypoint_names, count) -> list[str | None]:
+    """Keep optional names aligned with the caller's ordered input points."""
+    if waypoint_names is None:
+        return [None] * count
+    if not isinstance(waypoint_names, (list, tuple)) or len(waypoint_names) != count:
+        raise ValueError("waypoint_names must contain one name or null per input point")
+    if any(name is not None and (not isinstance(name, str) or not name.strip())
+           for name in waypoint_names):
+        raise ValueError("waypoint_names entries must be nonblank strings or null")
+    return list(waypoint_names)
+
+
+class WaypointDetails(BaseModel):
+    """A custom name or a reference to an existing Komoot highlight or map POI."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, strict=True)
+    highlight_id: int | None = Field(default=None, gt=0, strict=True)
+    poi_id: str | None = Field(default=None, strict=True, pattern=r"^[A-Za-z0-9]+$")
+    highlight_type: Literal["point", "segment"] = "point"
+
+    @model_validator(mode="after")
+    def validate_identity(self):
+        if self.name is not None and not self.name.strip():
+            raise ValueError("Waypoint name must not be blank")
+        if sum(value is not None for value in (self.name, self.highlight_id, self.poi_id)) > 1:
+            raise ValueError("Use only one of name, highlight_id, or poi_id")
+        if self.highlight_type != "point" and self.highlight_id is None:
+            raise ValueError("highlight_type needs a highlight_id")
+        return self
+
+
+def waypoint_metadata(waypoint_names, waypoint_details, count):
+    names = validate_waypoint_names(waypoint_names, count)
+    if waypoint_details is None:
+        details = [None] * count
+    elif not isinstance(waypoint_details, list) or len(waypoint_details) != count:
+        raise ValueError("waypoint_details must contain one object or null per input point")
+    else:
+        details = waypoint_details
+    metadata = []
+    for index, (name, detail) in enumerate(zip(names, details)):
+        item = WaypointDetails.model_validate(detail) if detail is not None else WaypointDetails()
+        if item.highlight_id is not None:
+            if name is not None:
+                raise ValueError("A highlight waypoint cannot also have a custom name")
+            prefix = "hlp" if item.highlight_type == "point" else "hls"
+            metadata.append({"reference": f"{prefix}:{item.highlight_id}"})
+        elif item.poi_id is not None:
+            if name is not None:
+                raise ValueError("A POI waypoint cannot also have a custom name")
+            metadata.append({"reference": f"poi:{item.poi_id}"})
+        else:
+            if name is not None and item.name is not None and name != item.name:
+                raise ValueError("Conflicting waypoint names")
+            resolved_name = item.name if item.name is not None else name
+            metadata.append(
+                {"name": resolved_name, "reference": f"cnw:{index + 1}"}
+                if resolved_name is not None else {}
+            )
+    return metadata
+
+
+async def plan_native_route(
+    client, coordinates, sport="hike", constitution=3, roundtrip=False, waypoint_names=None,
+    route_type="best", avoid=None, waypoint_details=None,
+):
     """Validate, authenticate off-thread, rate-limit, and plan off-thread."""
     profile = native_sport(sport)
     points = validate_coordinates(coordinates)
@@ -74,27 +168,43 @@ async def plan_native_route(client, coordinates, sport="hike", constitution=3, r
         raise ValueError("Provide at least two [latitude, longitude] points")
     if isinstance(constitution, bool) or not isinstance(constitution, int) or not 1 <= constitution <= 5:
         raise ValueError("constitution must be an integer between 1 and 5")
+    names = validate_waypoint_names(waypoint_names, len(points))
+    waypoint_metadata(names, waypoint_details, len(points))
+    tags = routing_tags(route_type, avoid)
     if roundtrip and points[-1] != points[0]:
         points.append(points[0].copy())
+        names.append(names[0])
+        if waypoint_details is not None:
+            waypoint_details = [*waypoint_details, waypoint_details[0]]
     auth = await asyncio.to_thread(client._basic_auth)
     await client.rl.acquire()
+    options: dict[str, Any] = {"waypoint_names": names} if any(name is not None for name in names) else {}
+    if tags:
+        options.update(route_type=route_type, avoid=avoid)
+    if waypoint_details is not None:
+        options["waypoint_details"] = waypoint_details
     return await asyncio.to_thread(
-        KomootNativePlanner(auth).plan, points, profile, constitution,
+        KomootNativePlanner(auth).plan, points, profile, constitution, **options,
     )
 
 
 def saved_plan_result(saved, route, requested_visibility):
-    """Report save data without claiming a visibility readback took place."""
+    """Report explicit readback evidence and the route's derived summary."""
     tour_id = saved.get("id")
     return {
         "tour_id": tour_id,
+        "status": saved.get("status"),
         "tour_url": f"https://www.komoot.com/tour/{tour_id}" if tour_id is not None else None,
         "distance_m": route.get("distance"),
         "duration_s": route.get("duration"),
         "elevation_up_m": route.get("elevation_up"),
         "requested_visibility": requested_visibility,
-        "verified_visibility": None,
-        "visibility_verified": False,
+        "verified_visibility": saved.get("verified_visibility") if saved.get("visibility_verified") is True else None,
+        "visibility_verified": saved.get("visibility_verified") is True,
+        "verification": saved.get("verification"),
+        "planning_summary": route_summary(
+            route, constitution=(route.get("planning_summary") or {}).get("pace", {}).get("constitution"),
+        ),
         "save_result": saved,
     }
 
@@ -130,7 +240,10 @@ class KomootNativePlanner:
         """
         self._auth = auth_pair
 
-    def plan(self, waypoints, sport_komoot, constitution=3):
+    def plan(
+        self, waypoints, sport_komoot, constitution=3, waypoint_names=None,
+        route_type="best", avoid=None, waypoint_details=None,
+    ):
         """Plan a route through the supplied waypoints.
 
         Args:
@@ -158,10 +271,14 @@ class KomootNativePlanner:
                 "(start + end). For a roundtrip pass the same point "
                 "twice."
             )
-        path = [
+        metadata = waypoint_metadata(waypoint_names, waypoint_details, len(waypoints))
+        tags = routing_tags(route_type, avoid)
+        path: list[dict[str, Any]] = [
             {"location": {"lat": float(lat), "lng": float(lon)}}
             for lat, lon in waypoints
         ]
+        for point, fields in zip(path, metadata):
+            point.update(fields)
         body = {
             "constitution": int(constitution),
             "sport": sport_komoot,
@@ -175,6 +292,8 @@ class KomootNativePlanner:
                 {"geometry": [], "type": "Routed"} for _ in range(len(path) - 1)
             ],
         }
+        if tags:
+            body["custom_tags"] = tags
         params = {"sport": sport_komoot, "_embedded": self._EMBED}
         try:
             resp = secure_http.post(
@@ -200,6 +319,23 @@ class KomootNativePlanner:
                 f"(HTTP {resp.status_code}): {snippet}"
             )
         try:
-            return resp.json()
+            route = resp.json()
         except ValueError as e:
             raise RoutingError(f"Komoot planner returned non-JSON: {e}")
+        if tags:
+            # Keep requested preferences when the router omits them from its result.
+            route["custom_tags"] = tags
+        if any(metadata):
+            routed_path = route.get("path") if isinstance(route, dict) else None
+            if not isinstance(routed_path, list) or len(routed_path) != len(path):
+                raise RoutingError("Komoot returned a different waypoint count; cannot preserve waypoint metadata")
+            # Routing can snap locations. Use ordered path identity, never nearest coordinates.
+            for point, fields in zip(routed_path, metadata):
+                if fields:
+                    if "name" not in fields and point.get("reference") != fields["reference"]:
+                        point.pop("name", None)
+                        point.pop("description", None)
+                        point.pop("category", None)
+                    point.update(fields)
+        route["planning_summary"] = route_summary(route, constitution=constitution)
+        return route

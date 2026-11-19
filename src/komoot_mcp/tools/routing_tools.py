@@ -4,7 +4,8 @@ import asyncio
 
 from komoot_mcp.context import get_client, get_geocoder
 from komoot_mcp.routing import (
-    native_sport, plan_native_route, saved_plan_result, validate_coordinates,
+    native_sport, plan_native_route, saved_plan_result, validate_coordinates, validate_waypoint_names,
+    RouteType, Avoidance, routing_tags, WaypointDetails, waypoint_metadata,
 )
 
 
@@ -38,6 +39,9 @@ def register(mcp):
         sport: str = "hike", waypoints: str | None = None,
         tour_name: str | None = None, tour_status: str = "private",
         constitution: int = 3,
+        waypoint_names: list[str | None] | None = None,
+        route_type: RouteType = "best", avoid: list[Avoidance] | None = None,
+        waypoint_details: list[WaypointDetails | None] | None = None,
     ) -> dict:
         """Plan from place names or 'lat,lng' and save a planned tour.
 
@@ -54,8 +58,23 @@ def register(mcp):
         roundtrip appends the start after the end (if supplied) and waypoints.
         Without an end, roundtrip needs at least one waypoint. This is an
         out-and-back, not a target-distance loop generator.
+        waypoint_names contains one name or null for start, each via point,
+        then end if supplied. Explicit names override resolved geocoder names.
+        Null keeps a resolved place name where available. Coordinate-only
+        points stay unnamed. An appended roundtrip endpoint uses the start name.
+        route_type selects best, quiet, scenic, shortest, less_elevation, or technical.
+        avoid combines ferries, steps, steep_hills, and rough_terrain.
+        The saved route keeps these preferences. Avoidance is not a guarantee.
+        waypoint_details has one object or null for start, each via point, then end.
+        Use name for custom points, highlight_id with highlight_type point/segment,
+        or poi_id for an ordinary map POI. poi_id accepts ASCII letters and digits.
+        Use a Komoot POI ID, not an OSM ID. These identities are mutually exclusive.
+        Highlight and POI references cannot also have a waypoint_names entry.
+        Locations remain required.
+        Roundtrip closure inherits the start metadata.
         """
         profile = native_sport(sport)
+        routing_tags(route_type, avoid)
         if isinstance(constitution, bool) or not isinstance(constitution, int) or not 1 <= constitution <= 5:
             raise ValueError("constitution must be an integer between 1 and 5")
         if tour_status not in {"private", "friends", "public"}:
@@ -71,21 +90,29 @@ def register(mcp):
                 vias.append(coords)
         if roundtrip and not end and not vias:
             raise ValueError("Roundtrip needs waypoints to avoid a zero-distance route")
+        names = validate_waypoint_names(waypoint_names, 1 + len(vias) + bool(end))
+        metadata = waypoint_metadata(names, waypoint_details, len(names))
         # Validate all explicit coordinates before any geocoding request.
         start_coords = _parse_coords(start)
         end_coords = _parse_coords(end) if end else None
         geocoder = get_geocoder()
         if start_coords is None:
-            start_coords = await _geocode_location(start, geocoder)
+            start_coords, resolved_name = await _geocode_location(start, geocoder)
+            if not metadata[0]:
+                names[0] = resolved_name
         if end and end_coords is None:
-            end_coords = await _geocode_location(end, geocoder)
+            end_coords, resolved_name = await _geocode_location(end, geocoder)
+            if not metadata[-1]:
+                names[-1] = resolved_name
         points = [start_coords, *vias]
         if end_coords is not None:
             points.append(end_coords)
-        elif roundtrip:
-            points.append(start_coords)
         client = get_client()
-        route = await plan_native_route(client, points, sport, constitution, roundtrip)
+        route = await plan_native_route(
+            client, points, sport, constitution, roundtrip, names,
+            route_type=route_type, avoid=avoid,
+            waypoint_details=waypoint_details,
+        )
         saved = await client.save_planned_tour(
             route_response=route, name=tour_name or f"Planned {sport} route",
             status=tour_status,
@@ -100,7 +127,11 @@ async def _geocode_location(text, geocoder):
     results = await asyncio.to_thread(geocoder.forward, text, limit=1)
     if not results:
         raise ValueError(f"Could not geocode location: {text}")
-    return validate_coordinates([[results[0]["lat"], results[0]["lon"]]])[0]
+    result = results[0]
+    name = result.get("display_name")
+    if not isinstance(name, str) or not name.strip():
+        name = None
+    return validate_coordinates([[result["lat"], result["lon"]]])[0], name
 
 
 def _parse_coords(text):

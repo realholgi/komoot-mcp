@@ -66,11 +66,67 @@ async def import_gpx(gpx_content, client, sport="hike", track_index=0, match_rou
         if not candidates:
             raise KomootAPIError("A custom waypoint reference has no matching name/description")
         named = candidates.popleft()
-        waypoint.update({field: named[field] for field in ("name", "description", "category") if field in named})
+        for field in ("name", "description", "category"):
+            if field in named:
+                waypoint.setdefault(field, named[field])
         category = categories_by_name.get(named.get("name") or "")
         if category is not None:
             waypoint["category"] = category
             named["category"] = category
     if any(named_by_position.values()):
         raise KomootAPIError("Imported custom waypoint metadata has no matching path entry")
+    _restore_endpoint_names(gpx, track, selected_route)
     return selected_route
+
+
+def _restore_endpoint_names(gpx, imported_track, route):
+    """Identify the selected GPX geometry before transferring endpoint metadata."""
+
+    def position(point):
+        if isinstance(point, dict):
+            return round(point["lat"], 6), round(point["lng"], 6)
+        return round(point[0], 6), round(point[1], 6)
+
+    sources = []
+    for track in gpx.tracks:
+        points = [point for segment in track.segments for point in segment.points]
+        if points:
+            sources.append(points)
+    sources.extend(route.points for route in gpx.routes if route.points)
+    if not any(points[0].name or points[-1].name for points in sources):
+        return
+    coordinates = (imported_track.get("_embedded") or {}).get("coordinates", {}).get("items", [])
+    if coordinates:
+        endpoints = (position(coordinates[0]), position(coordinates[-1]))
+        candidates = [
+            points for points in sources
+            if ((round(points[0].latitude, 6), round(points[0].longitude, 6)),
+                (round(points[-1].latitude, 6), round(points[-1].longitude, 6))) == endpoints
+        ]
+    else:
+        candidates = sources
+    if len(candidates) != 1:
+        raise KomootAPIError("Cannot identify the source GPX track to preserve endpoint names")
+    path = route["path"]
+    reference = max(
+        (int(point["reference"][4:]) for point in path
+         if point.get("reference", "").startswith("cnw:") and point["reference"][4:].isdigit()),
+        default=0,
+    )
+    for source, point in ((candidates[0][0], path[0]), (candidates[0][-1], path[-1])):
+        if not source.name or point.get("name"):
+            continue
+        # Never replace another kind of waypoint (highlight, POI, or special).
+        if point.get("reference") and not point["reference"].startswith("cnw:"):
+            raise KomootAPIError("Cannot attach a GPX endpoint name to a non-custom waypoint")
+        if not point.get("reference"):
+            reference += 1
+            point["reference"] = f"cnw:{reference}"
+        point["name"] = source.name
+        if source.description is not None and utf16_units(source.description) > MAX_DESCRIPTION_UNITS:
+            raise KomootAPIError(
+                "A GPX endpoint description exceeds Komoot's 250-character storage limit; "
+                "use prepare_descriptions=True with a sampling-capable MCP client"
+            )
+        if source.description is not None:
+            point.setdefault("description", source.description)

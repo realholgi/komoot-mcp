@@ -206,6 +206,52 @@ async def test_missing_geocode_result_is_an_exception(planning):
     client._basic_auth.assert_not_called()
 
 
+
+@pytest.mark.asyncio
+async def test_place_names_and_explicit_via_names_reach_native_planner(planning):
+    tool, planner, _, geocoder, _ = planning
+    geocoder.forward.side_effect = [
+        [{"lat": 49, "lon": 8, "display_name": "Resolved station"}],
+        [{"lat": 50, "lon": 9, "display_name": "Resolved trailhead"}],
+    ]
+    await tool(
+        "Station query", "Trailhead query", waypoints="49.2,8.2", roundtrip=True,
+        waypoint_names=[None, "Picnic spot", "My destination"],
+    )
+    assert planner.plan.call_args.args[0] == [[49, 8], [49.2, 8.2], [50, 9], [49, 8]]
+    assert planner.plan.call_args.kwargs["waypoint_names"] == [
+        "Resolved station", "Picnic spot", "My destination", "Resolved station",
+    ]
+    geocoder.reverse.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_coordinates_without_names_do_not_trigger_geocoding(planning):
+    tool, planner, _, geocoder, _ = planning
+    await tool("49,8", "50,9", waypoints="49.2,8.2")
+    assert planner.plan.call_args.kwargs == {}
+    geocoder.forward.assert_not_called()
+    geocoder.reverse.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missing_resolved_name_does_not_invent_one(planning):
+    tool, planner, _, geocoder, _ = planning
+    geocoder.forward.return_value = [{"lat": 49, "lon": 8, "display_name": ""}]
+    await tool("Unnamed place query", "50,9")
+    assert planner.plan.call_args.kwargs == {}
+    geocoder.reverse.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_place_name_count_is_validated_before_geocoding(planning):
+    tool, planner, client, geocoder, _ = planning
+    with pytest.raises(ValueError, match="waypoint_names"):
+        await tool("Station", "Trailhead", waypoint_names=["Station"])
+    geocoder.forward.assert_not_called()
+    planner.plan.assert_not_called()
+    client.save_planned_tour.assert_not_awaited()
+
 # ---------------------------------------------------------------------
 # upload_gpx_capture_id — the client-side helper used by #19
 # ---------------------------------------------------------------------

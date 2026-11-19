@@ -10,6 +10,7 @@ from komoot_mcp.descriptions import prepare_gpx_descriptions
 from komoot_mcp.gpx_import import import_gpx
 from komoot_mcp.routing import (
     native_sport, plan_native_route, saved_plan_result, validate_coordinates,
+    RouteType, Avoidance, WaypointDetails,
 )
 
 
@@ -38,6 +39,8 @@ def register(mcp):
         Recognized GPX POI types select the current Komoot web-editor category
         by unambiguous source name/type. Unknown types retain the imported category.
         The category "water" does not imply drinking-water safety.
+        Named GPX track/route endpoints become custom named waypoints when
+        the selected source geometry is unambiguous. Existing names take priority.
         """
         if prepare_descriptions:
             prepared = await prepare_gpx_descriptions(gpx_content, ctx.session if ctx else None)
@@ -52,6 +55,9 @@ def register(mcp):
     async def komoot_plan_native_route(
         coordinates: list[list[float]], sport: str = "hike",
         constitution: int = 3, roundtrip: bool = False,
+        waypoint_names: list[str | None] | None = None,
+        route_type: RouteType = "best", avoid: list[Avoidance] | None = None,
+        waypoint_details: list[WaypointDetails | None] | None = None,
     ) -> dict[str, Any]:
         """Plan with Komoot from ordered [lat, lng] pairs without saving.
 
@@ -60,8 +66,27 @@ def register(mcp):
         road_cycle, gravel_ride (touringbicycle). Native aliases are mtb,
         mountainbike, touringbicycle, racebike, e_racebike, e_mtb, jogging,
         nordicwalking, and e_touringbicycle. Unknown names are rejected.
+        waypoint_names contains one name or null per input coordinate.
+        Names stay attached to the ordered start, via points, and end.
+        An appended roundtrip endpoint uses the start name. Coordinates alone
+        do not trigger reverse geocoding or generate POI names.
+        route_type selects best, quiet, scenic, shortest, less_elevation, or technical.
+        avoid combines ferries, steps, steep_hills, and rough_terrain.
+        Komoot uses these preferences to calculate geometry. Avoidance is not a guarantee.
+        waypoint_details has one object or null per input point, including start and end.
+        Use {"name": "Station"} for a custom name, or {"highlight_id": 123,
+        "highlight_type": "point"} for an existing highlight. For a segment use
+        highlight_type="segment". Use {"poi_id": "Ab123"} for an ordinary map POI.
+        poi_id is a Komoot ID with ASCII letters and digits, not an OSM ID.
+        Use only one of name, highlight_id, or poi_id per point.
+        Highlight and POI references cannot also have a waypoint_names entry.
+        Coordinates remain required. Roundtrip closure inherits the start metadata.
         """
-        return await plan_native_route(get_client(), coordinates, sport, constitution, roundtrip)
+        return await plan_native_route(
+            get_client(), coordinates, sport, constitution, roundtrip, waypoint_names,
+            route_type=route_type, avoid=avoid,
+            waypoint_details=waypoint_details,
+        )
 
     @mcp.tool()
     async def komoot_create_planned_tour(
@@ -86,6 +111,9 @@ def register(mcp):
         coordinates: list[list[float]], name: str, sport: str = "hike",
         constitution: int = 3, roundtrip: bool = False,
         status: Literal["private", "friends", "public"] = "private",
+        waypoint_names: list[str | None] | None = None,
+        route_type: RouteType = "best", avoid: list[Avoidance] | None = None,
+        waypoint_details: list[WaypointDetails | None] | None = None,
     ) -> dict[str, Any]:
         """Plan from [lat, lng] pairs and create a planned tour in one call.
 
@@ -95,10 +123,26 @@ def register(mcp):
         racebike, e_racebike, e_mtb, jogging, nordicwalking, e_touringbicycle.
         constitution is integer fitness 1–5. roundtrip appends the start.
         Visibility is requested, not readback-verified.
+        waypoint_names contains one name or null per input coordinate.
+        An appended roundtrip endpoint uses the start name.
+        route_type selects best, quiet, scenic, shortest, less_elevation, or technical.
+        avoid combines ferries, steps, steep_hills, and rough_terrain.
+        The saved route keeps these preferences. Avoidance is not a guarantee.
+        waypoint_details has one object or null per input point.
+        Use name for custom points, highlight_id with highlight_type point/segment,
+        or poi_id for an ordinary map POI. poi_id accepts ASCII letters and digits.
+        Use a Komoot POI ID, not an OSM ID. These identities are mutually exclusive.
+        Highlight and POI references cannot also have a waypoint_names entry.
+        Coordinates remain required.
+        Roundtrip closure inherits the start metadata.
         """
         if status not in {"private", "friends", "public"}:
             raise ValueError("status must be private, friends, or public")
-        route = await plan_native_route(get_client(), coordinates, sport, constitution, roundtrip)
+        route = await plan_native_route(
+            get_client(), coordinates, sport, constitution, roundtrip, waypoint_names,
+            route_type=route_type, avoid=avoid,
+            waypoint_details=waypoint_details,
+        )
         saved = await get_client().save_planned_tour(route, name, status=status)
         return saved_plan_result(saved, route, status)
 

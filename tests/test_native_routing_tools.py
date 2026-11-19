@@ -372,3 +372,256 @@ async def test_conflicting_same_name_poi_types_are_rejected_before_import(handle
     with pytest.raises(ValueError, match="conflicting categories"):
         await functions["komoot_import_gpx_route"](gpx)
     client._http_request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["komoot_plan_native_route", "komoot_plan_and_save_tour"])
+async def test_named_coordinate_tools_keep_names_after_snapping_and_save(handlers, monkeypatch, tool_name):
+    functions, client = handlers
+    response_route = {
+        "path": [
+            {"location": {"lat": 49.0001, "lng": 8.0001}, "index": 0},
+            {"location": {"lat": 49.1001, "lng": 8.1001}, "index": 10, "description": "Keep this"},
+            {"location": {"lat": 49.0001, "lng": 8.0001}, "index": 20},
+        ],
+        "segments": [{"type": "Routed", "from": 0, "to": 10}, {"type": "Routed", "from": 10, "to": 20}],
+        "_embedded": {"coordinates": {"items": [[49, 8, 100], [49.1, 8.1, 200], [49, 8, 100]]}},
+        "query": "routing-token",
+    }
+    response = Mock(status_code=200)
+    response.json.return_value = response_route
+    post = Mock(return_value=response)
+    monkeypatch.setattr(routing.secure_http, "post", post)
+    options = {"name": "Named loop"} if tool_name == "komoot_plan_and_save_tour" else {}
+    result = await functions[tool_name](
+        [[49, 8], [49.1, 8.1]], roundtrip=True,
+        waypoint_names=["Station", "Lookout"], **options,
+    )
+    sent_path = post.call_args.kwargs["json"]["path"]
+    assert [point["name"] for point in sent_path] == ["Station", "Lookout", "Station"]
+    assert [point["reference"] for point in sent_path] == ["cnw:1", "cnw:2", "cnw:3"]
+    assert [point["name"] for point in response_route["path"]] == ["Station", "Lookout", "Station"]
+    assert [point["reference"] for point in response_route["path"]] == ["cnw:1", "cnw:2", "cnw:3"]
+    assert response_route["path"][1]["description"] == "Keep this"
+    assert response_route["query"] == "routing-token"
+    assert len(response_route["_embedded"]["coordinates"]["items"]) == 3
+    if tool_name == "komoot_plan_native_route":
+        assert result is response_route
+        client.save_planned_tour.assert_not_awaited()
+    else:
+        client.save_planned_tour.assert_awaited_once_with(response_route, "Named loop", status="private")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("names", [[], ["Only start"], ["Start", ""], ["Start", 4], "Start|End"])
+async def test_invalid_waypoint_names_fail_before_authentication(handlers, names):
+    functions, client = handlers
+    with pytest.raises(ValueError, match="waypoint_names"):
+        await functions["komoot_plan_native_route"]([[49, 8], [49.1, 8.1]], waypoint_names=names)
+    client._basic_auth.assert_not_called()
+    client.rl.acquire.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_changed_native_path_count_rejects_ambiguous_names(handlers, monkeypatch):
+    functions, client = handlers
+    response = Mock(status_code=200)
+    response.json.return_value = {"path": [{"location": {"lat": 49, "lng": 8}}]}
+    monkeypatch.setattr(routing.secure_http, "post", Mock(return_value=response))
+    with pytest.raises(routing.RoutingError, match="waypoint count"):
+        await functions["komoot_plan_and_save_tour"](
+            [[49, 8], [49.1, 8.1]], name="Must not save", waypoint_names=["Start", "End"],
+        )
+    client.save_planned_tour.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("match_route", [True, False])
+async def test_gpx_track_endpoint_names_survive_import_and_save(handlers, match_route):
+    functions, client = handlers
+    route = {
+        "path": [
+            {"location": {"lat": 49.0002, "lng": 8.0002}, "index": 0},
+            {"location": {"lat": 49.1, "lng": 8.1}, "index": 12},
+        ],
+        "segments": [{"type": "Routed", "from": 0, "to": 12}],
+        "_embedded": {"coordinates": {"items": [[49.0002, 8.0002, 100], [49.1, 8.1, 200]]}},
+    }
+    client._komoot_post.return_value = {"_embedded": {
+        "matched" if match_route else "original": route,
+    }}
+    gpx = """<gpx version="1.1"><trk><trkseg>
+      <trkpt lat="49" lon="8"><name>Railway station</name><desc>North entrance</desc></trkpt>
+      <trkpt lat="49.1" lon="8.1"><name>Trailhead</name></trkpt>
+    </trkseg></trk></gpx>"""
+    imported = await functions["komoot_import_gpx_route"](gpx, match_route=match_route)
+    await functions["komoot_create_planned_tour"](imported, name="Endpoint names")
+    saved = client.save_planned_tour.call_args.args[0]
+    assert [point["name"] for point in saved["path"]] == ["Railway station", "Trailhead"]
+    assert [point["reference"] for point in saved["path"]] == ["cnw:1", "cnw:2"]
+    assert saved["path"][0]["description"] == "North entrance"
+    assert saved["_embedded"] is route["_embedded"]
+    assert saved["segments"] == route["segments"]
+
+
+@pytest.mark.asyncio
+async def test_geocoded_names_survive_http_response_to_save(handlers, monkeypatch):
+    from komoot_mcp.tools import routing_tools
+
+    functions, client = handlers
+
+    class Recorder:
+        def tool(self):
+            def register(fn):
+                functions[fn.__name__] = fn
+                return fn
+            return register
+
+    routing_tools.register(Recorder())
+    monkeypatch.setattr(routing_tools, "get_client", lambda: client)
+    geocoder = Mock()
+    geocoder.forward.return_value = [{"lat": 49, "lon": 8, "display_name": "Central station"}]
+    monkeypatch.setattr(routing_tools, "get_geocoder", lambda: geocoder)
+    response = Mock(status_code=200)
+    route = {"path": [
+        {"location": {"lat": 49.0001, "lng": 8.0001}, "index": 0},
+        {"location": {"lat": 50.0001, "lng": 9.0001}, "index": 100},
+    ], "_embedded": {"coordinates": {"items": [[49, 8, 123], [50, 9, 456]]}}}
+    response.json.return_value = route
+    post = Mock(return_value=response)
+    monkeypatch.setattr(routing.secure_http, "post", post)
+    await functions["komoot_plan_and_upload"](
+        "Station search", "50,9", waypoint_names=[None, "Walking trail"],
+    )
+    assert [point["name"] for point in post.call_args.kwargs["json"]["path"]] == [
+        "Central station", "Walking trail",
+    ]
+    saved = client.save_planned_tour.call_args.kwargs["route_response"]
+    assert saved is route
+    assert [(point["name"], point["reference"]) for point in saved["path"]] == [
+        ("Central station", "cnw:1"), ("Walking trail", "cnw:2"),
+    ]
+    assert saved["_embedded"]["coordinates"]["items"] == [[49, 8, 123], [50, 9, 456]]
+    geocoder.reverse.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_gpx_endpoint_sources_fail_instead_of_guessing(handlers):
+    functions, client = handlers
+    gpx = """<gpx version="1.1">
+      <trk><trkseg><trkpt lat="49" lon="8"><name>First start</name></trkpt>
+        <trkpt lat="49.1" lon="8.1"/></trkseg></trk>
+      <trk><trkseg><trkpt lat="49" lon="8"><name>Second start</name></trkpt>
+        <trkpt lat="49.1" lon="8.1"/></trkseg></trk>
+    </gpx>"""
+    with pytest.raises(KomootAPIError, match="identify the source GPX track"):
+        await functions["komoot_import_gpx_route"](gpx)
+    client.save_planned_tour.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", [
+    "komoot_plan_native_route", "komoot_plan_and_save_tour", "komoot_plan_and_upload",
+])
+@pytest.mark.parametrize("details,expected", [
+    (
+        [{"highlight_id": 123}, {"name": "Station"},
+         {"highlight_id": 456, "highlight_type": "segment"}],
+        ["hlp:123", "cnw:2", "hls:456", "hlp:123"],
+    ),
+    (
+        [{"poi_id": "Ab123"}, {"name": "Station"}, {"poi_id": "007zY"}],
+        ["poi:Ab123", "cnw:2", "poi:007zY", "poi:Ab123"],
+    ),
+])
+async def test_reference_identity_survives_snapping_roundtrip_and_save(
+    handlers, monkeypatch, tool_name, details, expected,
+):
+    from komoot_mcp.tools import routing_tools
+    functions, client = handlers
+    if tool_name == "komoot_plan_and_upload":
+        class Recorder:
+            def tool(self):
+                def register(fn):
+                    functions[fn.__name__] = fn
+                    return fn
+                return register
+        routing_tools.register(Recorder())
+        monkeypatch.setattr(routing_tools, "get_client", lambda: client)
+    route = {"path": [
+        {"location": {"lat": 49.0001, "lng": 8}, "index": 0},
+        {"location": {"lat": 49.1001, "lng": 8.1}, "index": 12},
+        {"location": {"lat": 49.2001, "lng": 8.2}, "index": 24, "end_index": 30},
+        {"location": {"lat": 49.0001, "lng": 8}, "index": 40},
+    ], "query": "keep-query", "_embedded": {"coordinates": {"items": [[49, 8], [49.2, 8.2]]}}}
+    response = Mock(status_code=200)
+    response.json.return_value = route
+    post = Mock(return_value=response)
+    monkeypatch.setattr(routing.secure_http, "post", post)
+    args: dict = {"start": "49,8", "end": "49.2,8.2", "waypoints": "49.1,8.1"} if tool_name == "komoot_plan_and_upload" else {
+        "coordinates": [[49, 8], [49.1, 8.1], [49.2, 8.2]],
+    }
+    if tool_name == "komoot_plan_and_save_tour":
+        args["name"] = "Highlights"
+    await functions[tool_name](**args, roundtrip=True, waypoint_details=details)
+    assert [p["reference"] for p in post.call_args.kwargs["json"]["path"]] == expected
+    assert [p["reference"] for p in route["path"]] == expected
+    assert route["path"][1]["name"] == "Station"
+    assert route["path"][2]["end_index"] == 30
+    assert route["query"] == "keep-query"
+    if tool_name != "komoot_plan_native_route":
+        call = client.save_planned_tour.call_args
+        saved = call.kwargs["route_response"] if tool_name == "komoot_plan_and_upload" else call.args[0]
+        assert saved is route
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("details", [
+    [], [{"highlight_id": -1}, None], [{"highlight_id": True}, None],
+    [{"name": "Custom", "highlight_id": 123}, None],
+    [{"highlight_type": "segment"}, None], [{"name": "  "}, None],
+    [{"highlight_id": 123, "unknown": True}, None],
+])
+async def test_invalid_highlight_metadata_never_authenticates(handlers, details):
+    functions, client = handlers
+    with pytest.raises(ValueError):
+        await functions["komoot_plan_native_route"](
+            [[49, 8], [49.1, 8.1]], waypoint_details=details,
+        )
+    client._basic_auth.assert_not_called()
+    client.save_planned_tour.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("detail,names", [
+    ({"poi_id": "Ab123", "name": "Station"}, None),
+    ({"poi_id": "Ab123", "highlight_id": 123}, None),
+    ({"poi_id": "Ab123", "highlight_type": "segment"}, None),
+    ({"poi_id": "Ab123"}, ["Station", None]),
+])
+async def test_conflicting_poi_metadata_never_authenticates(handlers, detail, names):
+    functions, client = handlers
+    with pytest.raises(ValueError):
+        await functions["komoot_plan_native_route"](
+            [[49, 8], [49.1, 8.1]], waypoint_details=[detail, None],
+            waypoint_names=names,
+        )
+    client._basic_auth.assert_not_called()
+    client.rl.acquire.assert_not_awaited()
+    client.save_planned_tour.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("poi_id", [
+    "", 123, True, "poi:Ab123", "osm:node:123", "ab_cd", "ab-cd", "é123",
+    " Ab123", "Ab123 ", "Ab123\n",
+])
+async def test_invalid_poi_id_never_authenticates(handlers, poi_id):
+    functions, client = handlers
+    with pytest.raises(ValueError):
+        await functions["komoot_plan_native_route"](
+            [[49, 8], [49.1, 8.1]], waypoint_details=[{"poi_id": poi_id}, None],
+        )
+    client._basic_auth.assert_not_called()
+    client.rl.acquire.assert_not_awaited()
+    client.save_planned_tour.assert_not_awaited()
