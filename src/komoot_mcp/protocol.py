@@ -28,6 +28,7 @@ _READ_ONLY = {
     "komoot_plan_native_route", "komoot_reverse_geocode",
     "komoot_find_pois_nearby",
     "komoot_resolve_place",
+    "komoot_preview_tour_update", "komoot_compare_route_variants",
 }
 _CREATE = {
     "komoot_login", "komoot_upload_tour", "komoot_plan_and_upload",
@@ -67,8 +68,10 @@ RESULT_SCHEMA = {
                 "code": {"type": "string"},
                 "message": {"type": "string"},
                 "retry_safe": {"type": "boolean"},
-                "operation_state": {"enum": ["unchanged", "not_attempted", "unknown"]},
+                "operation_state": {"enum": ["unchanged", "not_attempted", "unknown", "applied"]},
                 "status_code": {"type": "integer"},
+                "tour_id": {"type": ["integer", "string"]},
+                "confirmed_changes": {"type": "object", "additionalProperties": True},
             },
             "required": ["code", "message", "retry_safe", "operation_state"],
             "additionalProperties": False,
@@ -130,6 +133,15 @@ def _failure(error, *, read_only):
                "operation_state": state}
     if isinstance(status, int):
         details["status_code"] = status
+    if isinstance(error, KomootAPIError):
+        if error.code:
+            details["code"] = error.code
+        if error.operation_state:
+            details["operation_state"] = error.operation_state
+        if error.tour_id is not None:
+            details["tour_id"] = error.tour_id
+        if error.confirmed_changes is not None:
+            details["confirmed_changes"] = error.confirmed_changes
     return _result({"ok": False, "error": details}, is_error=True)
 
 

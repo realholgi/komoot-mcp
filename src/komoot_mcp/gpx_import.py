@@ -7,6 +7,7 @@ import gpxpy
 from komoot_mcp.client import KomootAPIError
 from komoot_mcp.text_limits import MAX_DESCRIPTION_UNITS, utf16_units
 from komoot_mcp.poi_types import get_poi_type
+from komoot_mcp.persistence import roundtrip_path
 
 _WWW = "https://www.komoot.com/api"
 _EMBEDS = "coordinates,way_types,surfaces,directions,custom_named_waypoints"
@@ -76,6 +77,7 @@ async def import_gpx(gpx_content, client, sport="hike", track_index=0, match_rou
     if any(named_by_position.values()):
         raise KomootAPIError("Imported custom waypoint metadata has no matching path entry")
     _restore_endpoint_names(gpx, track, selected_route)
+    selected_route["path"] = roundtrip_path(selected_route["path"])
     return selected_route
 
 

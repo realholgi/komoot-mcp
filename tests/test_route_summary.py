@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from komoot_mcp.planning_insights import planning_insights
 from komoot_mcp.route_summary import route_summary
 from komoot_mcp.routing import KomootNativePlanner, saved_plan_result
 from komoot_mcp.tools import browse_tools
@@ -86,11 +87,20 @@ def test_other_fitness_labels_remain_explicitly_unverified(fitness):
     assert pace["constitution_label_source"] is None
 
 
-@pytest.mark.parametrize("sport", [None, "racebike", "mtb", "jogging"])
-def test_hiking_label_evidence_does_not_claim_other_sports(sport):
+@pytest.mark.parametrize("sport", [None, "e_mtb", "nordicwalking", "mountainbike"])
+def test_unobserved_sports_remain_unverified(sport):
     pace = route_summary({"sport": sport, "constitution": 4})["pace"]
     assert pace["constitution_label"] is None
     assert pace["constitution_label_verified"] is False
+
+
+@pytest.mark.parametrize("sport", ["hike", "jogging", "touringbicycle", "mtb", "racebike", "mtb_easy"])
+@pytest.mark.parametrize("fitness,label", [(1, "Relaxed"), (2, "Steady"), (3, "Moderate"), (4, "Fast"), (5, "Very fast")])
+def test_live_observed_preset_labels(sport, fitness, label):
+    pace = route_summary({"sport": sport, "constitution": fitness})["pace"]
+    assert pace["constitution_label"] == label
+    assert pace["constitution_label_verified"] is True
+    assert pace["constitution_label_source"]["sport"] == sport
 
 
 @pytest.mark.parametrize("duration", [0, -1, True, "3600", float("nan"), float("inf")])
@@ -117,7 +127,10 @@ def test_planner_preview_adds_only_namespaced_explanation(monkeypatch, route):
     result = KomootNativePlanner(("user", "token")).plan([[48, 8], [48.1, 8.1]], "hike", 4)
     summary = result.pop("planning_summary")
     assert result == route
-    assert summary == route_summary(route)
+    assert summary == {
+        **route_summary(route),
+        **planning_insights(route, [[48, 8], [48.1, 8.1]]),
+    }
 
 
 def test_planner_summary_retains_requested_constitution_when_response_omits_it(monkeypatch):

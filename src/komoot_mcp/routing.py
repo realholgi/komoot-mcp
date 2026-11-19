@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from komoot_mcp import secure_http
 from komoot_mcp.route_summary import route_summary
+from komoot_mcp.planning_insights import planning_insights, validate_waypoint_stays
+from komoot_mcp.persistence import roundtrip_path
 
 
 class RoutingError(Exception):
@@ -159,7 +161,7 @@ def waypoint_metadata(waypoint_names, waypoint_details, count):
 
 async def plan_native_route(
     client, coordinates, sport="hike", constitution=3, roundtrip=False, waypoint_names=None,
-    route_type="best", avoid=None, waypoint_details=None,
+    route_type="best", avoid=None, waypoint_details=None, waypoint_stays_s=None,
 ):
     """Validate, authenticate off-thread, rate-limit, and plan off-thread."""
     profile = native_sport(sport)
@@ -171,9 +173,11 @@ async def plan_native_route(
     names = validate_waypoint_names(waypoint_names, len(points))
     waypoint_metadata(names, waypoint_details, len(points))
     tags = routing_tags(route_type, avoid)
+    stays = validate_waypoint_stays(waypoint_stays_s, len(points))
     if roundtrip and points[-1] != points[0]:
         points.append(points[0].copy())
         names.append(names[0])
+        stays.append(0)
         if waypoint_details is not None:
             waypoint_details = [*waypoint_details, waypoint_details[0]]
     auth = await asyncio.to_thread(client._basic_auth)
@@ -183,9 +187,41 @@ async def plan_native_route(
         options.update(route_type=route_type, avoid=avoid)
     if waypoint_details is not None:
         options["waypoint_details"] = waypoint_details
-    return await asyncio.to_thread(
+    route = await asyncio.to_thread(
         KomootNativePlanner(auth).plan, points, profile, constitution, **options,
     )
+    route.setdefault("planning_summary", {}).update(planning_insights(route, points, stays))
+    return route
+
+
+async def compare_route_variants(
+    client, coordinates, sport="hike", constitution=3, roundtrip=False,
+    waypoint_names=None, avoid=None, waypoint_details=None, waypoint_stays_s=None,
+):
+    """Plan three preference variants without saving or guaranteeing preferences."""
+    variants = {}
+    for route_type in ("shortest", "scenic", "quiet"):
+        route = await plan_native_route(
+            client, coordinates, sport, constitution, roundtrip, waypoint_names,
+            route_type, avoid, waypoint_details, waypoint_stays_s,
+        )
+        variants[route_type] = {"route": route}
+    baseline = variants["shortest"]["route"]
+    for variant in variants.values():
+        route = variant["route"]
+        deltas = {}
+        for key in ("distance", "duration", "elevation_up", "elevation_down"):
+            value, reference = route.get(key), baseline.get(key)
+            valid = all(
+                not isinstance(v, bool) and isinstance(v, Real) and math.isfinite(v) and float(v) >= 0
+                for v in (value, reference)
+            )
+            deltas[key + ("_s" if key == "duration" else "_m")] = value - reference if valid else None
+        variant["deltas_vs_shortest"] = deltas
+    return {
+        "baseline": "shortest", "variants": variants,
+        "limitation": "These are requested routing preferences, not guarantees of shortest, scenic, or quiet conditions.",
+    }
 
 
 def saved_plan_result(saved, route, requested_visibility):
@@ -201,10 +237,13 @@ def saved_plan_result(saved, route, requested_visibility):
         "requested_visibility": requested_visibility,
         "verified_visibility": saved.get("verified_visibility") if saved.get("visibility_verified") is True else None,
         "visibility_verified": saved.get("visibility_verified") is True,
+        "planning_summary": {
+            **(route.get("planning_summary") or {}),
+            **route_summary(
+                route, constitution=(route.get("planning_summary") or {}).get("pace", {}).get("constitution"),
+            ),
+        },
         "verification": saved.get("verification"),
-        "planning_summary": route_summary(
-            route, constitution=(route.get("planning_summary") or {}).get("pace", {}).get("constitution"),
-        ),
         "save_result": saved,
     }
 
@@ -279,6 +318,9 @@ class KomootNativePlanner:
         ]
         for point, fields in zip(path, metadata):
             point.update(fields)
+        path = roundtrip_path(path)
+        if path[-1].get("reference") == "special:back":
+            metadata[-1] = {"reference": "special:back"}
         body = {
             "constitution": int(constitution),
             "sport": sport_komoot,
@@ -337,5 +379,8 @@ class KomootNativePlanner:
                         point.pop("description", None)
                         point.pop("category", None)
                     point.update(fields)
-        route["planning_summary"] = route_summary(route, constitution=constitution)
+        route["planning_summary"] = {
+            **route_summary(route, constitution=constitution),
+            **planning_insights(route, waypoints),
+        }
         return route

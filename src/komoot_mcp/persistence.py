@@ -2,6 +2,8 @@
 
 import math
 
+from komoot_mcp.route_geometry import coordinate
+
 
 # TourHal._syncPostData's planned attribute filter in the shipped web planner.
 # main.4aa1c01d52651411.js, offsets 1068690–1069025 and 1092250–1093070.
@@ -15,10 +17,31 @@ _PLANNED_FIELDS = frozenset({
 _EMBEDDED_FIELDS = ("coordinates", "way_types", "surfaces", "directions")
 
 
+def roundtrip_path(path):
+    """Mark an exact return to the start as Komoot's native roundtrip endpoint."""
+    if not isinstance(path, list) or len(path) < 2:
+        return path
+    first, last = path[0], path[-1]
+    if not isinstance(first, dict) or not isinstance(last, dict):
+        return path
+    start = coordinate(first.get("location"))
+    end = coordinate(last.get("location"))
+    if start is None or start != end or last.get("reference") == "special:back":
+        return path
+    # The web planner hides this closing marker instead of showing a duplicate POI.
+    # main.1087dae42262732d.js, offsets 89412 and 1084498, observed 2026-11-19.
+    endpoint = {key: value for key, value in last.items()
+                if key not in {"reference", "referenceKey", "name", "description", "category"}}
+    endpoint["reference"] = "special:back"
+    return [*path[:-1], endpoint]
+
+
 def planned_payload(route):
     if not isinstance(route, dict):
         raise ValueError("route_data must be a full native planner result")
     body = {key: value for key, value in route.items() if key in _PLANNED_FIELDS}
+    if "path" in body:
+        body["path"] = roundtrip_path(body["path"])
     embedded = route.get("_embedded", {})
     if isinstance(embedded, dict):
         body["_embedded"] = {

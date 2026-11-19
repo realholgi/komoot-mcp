@@ -221,3 +221,21 @@ async def test_read_only_still_executes_allowed_reads(monkeypatch):
     assert result.structuredContent["data"]["status"] == "private"
     assert result.structuredContent["data"]["planning_summary"]["pace"]["duration_status"] == "missing"
     client.get_tour.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_write_failure_returns_target_and_confirmed_changes(monkeypatch):
+    failure = KomootAPIError(
+        "Readback differs", tour_id=42, operation_state="applied",
+        confirmed_changes={"constitution": 4, "name": "Walk"},
+    )
+    client = Mock(modify_tour_extended=AsyncMock(side_effect=failure))
+    monkeypatch.setattr(write_tools, "get_client", lambda: client)
+    async with create_connected_server_and_client_session(create_server()) as session:
+        result = await session.call_tool("komoot_modify_tour_extended", {"tour_id": 42, "constitution": 4})
+    error = result.structuredContent["error"]
+    assert result.isError is True
+    assert error["tour_id"] == 42
+    assert error["confirmed_changes"] == {"constitution": 4, "name": "Walk"}
+    assert error["operation_state"] == "applied"
+    assert error["retry_safe"] is False

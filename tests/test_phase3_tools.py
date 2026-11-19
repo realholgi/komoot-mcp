@@ -247,14 +247,18 @@ async def test_replace_planned_route_uses_put_and_two_readbacks(registered_tools
         "_embedded": {"coordinates": {"items": [[49, 8], [50, 9]]}},
         "planning_summary": {"warnings": []},
     }
+    from komoot_mcp.change_preview import preview_token
+    token = preview_token(42, current, [[49, 8], [50, 9]], route)
     with patch("komoot_mcp.client.requests.request", side_effect=[
-        _make_response(json_body=current), _make_response(json_body={}),
+        _make_response(json_body=current),
+        _make_response(json_body={"items": [[49, 8], [50, 9]]}),
+        _make_response(json_body={}),
         _make_response(json_body={**route, **current}),
         _make_response(json_body={"items": [[49, 8], [50, 9]]}),
     ]) as request:
-        out = await registered_tools["komoot_update_planned_tour"](42, route)
-    assert [call.kwargs["method"] for call in request.call_args_list] == ["GET", "PUT", "GET", "GET"]
-    write = request.call_args_list[1].kwargs
+        out = await registered_tools["komoot_update_planned_tour"](42, route, token)
+    assert [call.kwargs["method"] for call in request.call_args_list] == ["GET", "GET", "PUT", "GET", "GET"]
+    write = request.call_args_list[2].kwargs
     assert write["url"] == "https://api.komoot.de/v007/tours/42"
     assert write["json"]["name"] == "Kept"
     assert write["json"]["path"] == route["path"]

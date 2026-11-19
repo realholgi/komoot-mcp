@@ -58,18 +58,20 @@ def register(mcp):
         waypoint_names: list[str | None] | None = None,
         route_type: RouteType = "best", avoid: list[Avoidance] | None = None,
         waypoint_details: list[WaypointDetails | None] | None = None,
+        waypoint_stays_s: list[float] | None = None,
     ) -> dict[str, Any]:
         """Plan with Komoot from ordered [lat, lng] pairs without saving.
 
         constitution is integer fitness from 1 to 5. roundtrip appends the
-        start if needed. sport accepts hike, trail_run, mountain_bike,
+        start only if needed. Equal start/end coordinates always enable Komoot's
+        native roundtrip setting, even with roundtrip=False. sport accepts hike, trail_run, mountain_bike,
         road_cycle, gravel_ride (touringbicycle). Native aliases are mtb,
         mountainbike, touringbicycle, racebike, e_racebike, e_mtb, jogging,
         nordicwalking, and e_touringbicycle. Unknown names are rejected.
         waypoint_names contains one name or null per input coordinate.
         Names stay attached to the ordered start, via points, and end.
-        An appended roundtrip endpoint uses the start name. Coordinates alone
-        do not trigger reverse geocoding or generate POI names.
+        The closing point uses special:back instead of a duplicate name or POI.
+        Coordinates alone do not trigger reverse geocoding or generate POI names.
         route_type selects best, quiet, scenic, shortest, less_elevation, or technical.
         avoid combines ferries, steps, steep_hills, and rough_terrain.
         Komoot uses these preferences to calculate geometry. Avoidance is not a guarantee.
@@ -80,12 +82,16 @@ def register(mcp):
         poi_id is a Komoot ID with ASCII letters and digits, not an OSM ID.
         Use only one of name, highlight_id, or poi_id per point.
         Highlight and POI references cannot also have a waypoint_names entry.
-        Coordinates remain required. Roundtrip closure inherits the start metadata.
+        Coordinates remain required. Roundtrip closure keeps the start location.
+        waypoint_stays_s sets a pause in seconds per input point. Default: zero.
+        planning_summary separates moving time, pauses, and total time.
+        It also reports waypoint offsets and unusual detours. These do not prove access.
         """
         return await plan_native_route(
             get_client(), coordinates, sport, constitution, roundtrip, waypoint_names,
             route_type=route_type, avoid=avoid,
             waypoint_details=waypoint_details,
+            waypoint_stays_s=waypoint_stays_s,
         )
 
     @mcp.tool()
@@ -99,6 +105,8 @@ def register(mcp):
         Side effect: creates a Komoot tour. Defaults to private. route_data is
         the full result of komoot_import_gpx_route or komoot_plan_native_route,
         including its path/waypoint metadata and embedded geometry.
+        Equal start/end coordinates enable Komoot's native roundtrip setting
+        without changing the geometry or adding another return leg.
         """
         route = dict(route_data)
         if sport is not None:
@@ -107,22 +115,54 @@ def register(mcp):
         return saved_plan_result(saved, route, status)
 
     @mcp.tool()
-    async def komoot_update_planned_tour(
+    async def komoot_preview_tour_update(
         tour_id: int, route_data: dict[str, Any],
     ) -> dict[str, Any]:
-        """Replace the geometry of one existing planned tour with a previewed route.
+        """Compare a replacement route with the current tour. Do not save.
 
-        Side effect: updates this exact tour ID in the account.
-        Pass the full result of komoot_plan_native_route or komoot_import_gpx_route.
-        This tool does not plan again. It preserves name, visibility, description,
-        and gear. Komoot can refresh the planning date. The result reports its
-        before and after values in metadata_changes.date.
-        This tool rejects recorded activities and incomplete geometry.
-        Readback checks geometry, ordered waypoint references, sport, fitness,
-        visibility, and the preserved metadata. If readback fails, inspect the
-        reported tour ID before retrying. This tool does not create another tour.
+        Return distance, ascent, descent, duration, and ordered POI changes.
+        Pass preview_token and the same route_data to komoot_update_planned_tour.
+        A changed tour needs a new preview.
         """
-        saved = await get_client().update_planned_tour(tour_id, route_data)
+        return await get_client().preview_tour_update(tour_id, route_data)
+
+    @mcp.tool()
+    async def komoot_compare_route_variants(
+        coordinates: list[list[float]], sport: str = "hike",
+        constitution: int = 3, roundtrip: bool = False,
+        waypoint_names: list[str | None] | None = None,
+        avoid: list[Avoidance] | None = None,
+        waypoint_details: list[WaypointDetails | None] | None = None,
+        waypoint_stays_s: list[float] | None = None,
+    ) -> dict[str, Any]:
+        """Compare shortest, scenic, and quiet routes without saving.
+
+        Use the same points, sport, fitness, avoidance, and pauses for each route.
+        Return each full route and its differences from shortest.
+        Preferences do not guarantee scenery or low traffic. Pauses default to zero.
+        """
+        from komoot_mcp.routing import compare_route_variants
+
+        return await compare_route_variants(
+            get_client(), coordinates, sport, constitution, roundtrip, waypoint_names,
+            avoid=avoid, waypoint_details=waypoint_details, waypoint_stays_s=waypoint_stays_s,
+        )
+
+    @mcp.tool()
+    async def komoot_update_planned_tour(
+        tour_id: int, route_data: dict[str, Any], preview_token: str,
+    ) -> dict[str, Any]:
+        """Replace one planned tour with the exact route from its preview.
+
+        This changes the tour in the account. First call komoot_preview_tour_update.
+        Pass its preview_token and the same route_data. If either changed, this tool
+        stops without writing. Review a new preview before retrying.
+        It preserves name, visibility, description, and gear.
+        Komoot can refresh the date. metadata_changes.date reports this change.
+        Readback checks geometry, waypoints, sport, fitness, and preserved metadata.
+        After a write error, inspect tour_id and confirmed_changes before retrying.
+        """
+        saved = await get_client().update_planned_tour(tour_id, route_data, preview_token)
         result = saved_plan_result(saved, route_data, saved["verified_visibility"])
         result["metadata_changes"] = saved["metadata_changes"]
         return result
@@ -135,6 +175,7 @@ def register(mcp):
         waypoint_names: list[str | None] | None = None,
         route_type: RouteType = "best", avoid: list[Avoidance] | None = None,
         waypoint_details: list[WaypointDetails | None] | None = None,
+        waypoint_stays_s: list[float] | None = None,
     ) -> dict[str, Any]:
         """Plan from [lat, lng] pairs and create a planned tour in one call.
 
@@ -142,10 +183,11 @@ def register(mcp):
         sport accepts hike, trail_run, mountain_bike, road_cycle, gravel_ride
         (touringbicycle), plus native mtb, mountainbike, touringbicycle,
         racebike, e_racebike, e_mtb, jogging, nordicwalking, e_touringbicycle.
-        constitution is integer fitness 1–5. roundtrip appends the start.
+        constitution is integer fitness 1–5. roundtrip appends the start if needed.
+        Equal start/end coordinates always enable Komoot's native roundtrip setting.
         Readback verifies the saved visibility, sport, fitness, and waypoint references.
         waypoint_names contains one name or null per input coordinate.
-        An appended roundtrip endpoint uses the start name.
+        The closing point uses special:back instead of a duplicate name or POI.
         route_type selects best, quiet, scenic, shortest, less_elevation, or technical.
         avoid combines ferries, steps, steep_hills, and rough_terrain.
         The saved route keeps these preferences. Avoidance is not a guarantee.
@@ -155,7 +197,9 @@ def register(mcp):
         Use a Komoot POI ID, not an OSM ID. These identities are mutually exclusive.
         Highlight and POI references cannot also have a waypoint_names entry.
         Coordinates remain required.
-        Roundtrip closure inherits the start metadata.
+        Roundtrip closure keeps the start location.
+        waypoint_stays_s sets seconds per input point. Pauses default to zero.
+        Pauses affect the local total time, not Komoot's stored moving duration.
         """
         if status not in {"private", "friends", "public"}:
             raise ValueError("status must be private, friends, or public")
@@ -163,6 +207,7 @@ def register(mcp):
             get_client(), coordinates, sport, constitution, roundtrip, waypoint_names,
             route_type=route_type, avoid=avoid,
             waypoint_details=waypoint_details,
+            waypoint_stays_s=waypoint_stays_s,
         )
         saved = await get_client().save_planned_tour(route, name, status=status)
         return saved_plan_result(saved, route, status)

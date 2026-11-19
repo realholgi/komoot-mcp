@@ -67,7 +67,7 @@ File output preserves download bytes. Existing files require `overwrite=true` fo
 FIT downloads support planned tours. There is no `komoot_get_tour_fit` tool.
 Downloads count as write tools because they can create local files, even when a call requests inline content.
 
-### Planning and geocoding (9)
+### Planning and geocoding (11)
 
 - `komoot_geocode`
 - `komoot_reverse_geocode`
@@ -75,6 +75,8 @@ Downloads count as write tools because they can create local files, even when a 
 - `komoot_resolve_place`
 - `komoot_import_gpx_route`
 - `komoot_plan_native_route`
+- `komoot_compare_route_variants`
+- `komoot_preview_tour_update`
 - `komoot_create_planned_tour`
 - `komoot_plan_and_save_tour`
 - `komoot_plan_and_upload`
@@ -116,12 +118,17 @@ Unresolved candidates remain in the result. The tool does not choose a place for
 | `komoot_plan_and_save_tour` | Plan from coordinates and save |
 | `komoot_plan_and_upload` | Plan from place names or `lat,lng` strings and save |
 
-For a roundtrip, supply intermediate points. The planner returns to the start.
-It does not generate a loop for a target distance.
+For a roundtrip, supply intermediate points and set `roundtrip: true` to return to the start.
+If start and end already have identical latitude and longitude, native roundtrip mode activates automatically, even with `roundtrip: false`.
+The MCP uses Komoot's `special:back` closing marker to enable "Hin- und Rückweg" in the planner.
+It replaces the duplicate endpoint reference without adding a point, segment, or extra return leg.
+This also applies to GPX imports and route data passed to create or update tools.
+Height differences do not affect this check. Nearby but different coordinates do not count as equal.
+The planner does not generate a loop for a target distance.
 
 Use `waypoint_names` on the coordinate planning tools and `komoot_plan_and_upload`.
 Supply one name or `null` per input point, in order: start, via points, end.
-An appended roundtrip endpoint inherits the start name.
+The closing roundtrip point uses `special:back` instead of a duplicate named waypoint.
 Place-name planning uses resolved geocoder names unless you supply explicit names.
 Coordinate-only points stay unnamed unless you supply names.
 
@@ -144,7 +151,7 @@ Coordinates or place locations remain required. An ID alone does not supply a lo
 Named points use `cnw:` references. Highlight points use `hlp:` and segments use `hls:`.
 Ordinary map POIs use `poi:` references. Supply the ID without the `poi:` prefix.
 Use an ID returned by Komoot. OSM IDs cannot be converted into Komoot POI IDs.
-An appended roundtrip endpoint inherits the start metadata.
+The closing roundtrip point keeps the start location, not a duplicate POI or highlight reference.
 The planner keeps references when Komoot snaps coordinates, and the save step preserves them.
 Conflicting names or a different returned waypoint count fail before saving.
 
@@ -177,12 +184,30 @@ Prepared publication has additional read-back checks. See the [import guide](pre
 Previews, save results, and compact or full tour details include `planning_summary`.
 Its `pace` reports distance, duration in seconds, a readable duration, average speed in km/h, and fitness.
 Missing or invalid durations produce no calculated speed.
-The English Hiking planner label `Fast` was verified for fitness 4 on 2026-11-18 using its routing request and response.
-Other labels and sports remain explicitly unverified.
+The public English planner verified five presets for six sports on 2026-11-18.
+See [pace label verification](pace-verification.md) for the mappings and observations.
 Readable `warnings` retain their native code, raw entry, and coordinate-index spans.
 `information` contains protection-area notices separately from warnings.
 Unknown warning codes stay visible and are marked unknown.
 These summaries do not change the route or claim that current access restrictions were checked.
+
+`komoot_compare_route_variants` calculates shortest, scenic, and quiet routes without saving.
+Each variant keeps the same input points, sport, fitness, avoidance, and pauses.
+Results include full routes and distance, elevation, and duration differences from shortest.
+These preferences do not guarantee scenery, low traffic, or the shortest possible route.
+
+`komoot_plan_native_route`, `komoot_plan_and_save_tour`, and the variant tool accept `waypoint_stays_s`.
+Supply one pause in seconds per input point. The default is zero.
+`planning_summary.timing` reports moving time, pause time, and total time separately.
+An automatically added roundtrip endpoint adds no pause.
+Pauses do not change the native duration sent to Komoot.
+They remain local planning data and are not stored as POI stays in the account.
+
+`planning_summary.access_diagnostics` reports each requested point's distance from its indexed route coordinate.
+It flags offsets over 50 metres.
+A leg is unusual when its route exceeds three times the straight-line distance and adds over 500 metres.
+Missing geometry indices produce an unknown result. Loops with identical endpoints have no detour ratio.
+These checks do not prove legal or physical access to a POI.
 
 Set `prepare_descriptions=true` in `komoot_import_gpx_route` to use MCP client sampling.
 Sampling needs client approval and uses the client's model.
@@ -201,9 +226,14 @@ It needs no server model API key. Prepared-artifact import does not use sampling
 
 Resolving a share URL reads data. Creating or revoking a link changes sharing.
 
-`komoot_update_planned_tour(tour_id, route_data)` replaces a planned route under its existing ID.
-Preview the replacement with `komoot_plan_native_route` or `komoot_import_gpx_route` first.
-Pass that full route result as `route_data`, including its embedded geometry.
+`komoot_update_planned_tour(tour_id, route_data, preview_token)` replaces a planned route under its existing ID.
+Plan or import the replacement first. Then call `komoot_preview_tour_update(tour_id, route_data)`.
+The preview shows signed distance, elevation, and duration differences, plus ordered POI changes.
+Pass its `preview_token` and the same full `route_data` to the update tool.
+The client reads tour metadata and coordinates again before writing.
+If the tour, target ID, or replacement changed, it returns `preview_conflict` without writing.
+Review a new preview before approving the update.
+This check is not an atomic server-side conditional write. An edit during the final PUT can still race.
 The update preserves the current name, visibility, description, and gear.
 Komoot may reset the tour date during a route update.
 The result reports this as `metadata_changes.date`, with the before and after values.
@@ -211,6 +241,9 @@ It rejects recorded activities and incomplete geometry before writing.
 It does not plan again, create a copy, or delete the original tour.
 Readback checks geometry, ordered references, sport, fitness, visibility, and preserved metadata.
 If the update cannot be verified, inspect the reported tour ID before retrying.
+Write errors include `tour_id` when known and `confirmed_changes` when available.
+`operation_state: applied` means Komoot accepted the write, even if readback failed.
+`unknown` means the write outcome is uncertain. Neither state permits an automatic retry.
 
 `komoot_modify_tour_extended` changes supplied fields without replacing route geometry.
 It accepts name, sport, visibility, description, gear and date, plus these values:

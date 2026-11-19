@@ -124,13 +124,14 @@ def register(mcp):
         and e_touringbicycle. Unknown names are rejected before network access.
 
         waypoints contains ordered 'lat,lng' pairs separated by '|'.
-        roundtrip appends the start after the end (if supplied) and waypoints.
+        roundtrip appends the start if needed after the end and waypoints.
+        Equal start/end coordinates always enable Komoot's native roundtrip setting.
         Without an end, roundtrip needs at least one waypoint. This is an
         out-and-back, not a target-distance loop generator.
         waypoint_names contains one name or null for start, each via point,
         then end if supplied. Explicit names override resolved geocoder names.
         Null keeps a resolved place name where available. Coordinate-only
-        points stay unnamed. An appended roundtrip endpoint uses the start name.
+        points stay unnamed. Roundtrip closure uses special:back, not a duplicate name.
         route_type selects best, quiet, scenic, shortest, less_elevation, or technical.
         avoid combines ferries, steps, steep_hills, and rough_terrain.
         The saved route keeps these preferences. Avoidance is not a guarantee.
@@ -140,7 +141,7 @@ def register(mcp):
         Use a Komoot POI ID, not an OSM ID. These identities are mutually exclusive.
         Highlight and POI references cannot also have a waypoint_names entry.
         Locations remain required.
-        Roundtrip closure inherits the start metadata.
+        Roundtrip closure keeps the start location.
         """
         profile = native_sport(sport)
         routing_tags(route_type, avoid)

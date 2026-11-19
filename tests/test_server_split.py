@@ -20,6 +20,8 @@ async def test_importer_preserves_exact_komoot_catalog():
         "komoot_find_pois_nearby",
         "komoot_resolve_place",
         "komoot_update_planned_tour",
+        "komoot_preview_tour_update",
+        "komoot_compare_route_variants",
         "komoot_login",
         "komoot_list_tours",
         "komoot_get_tour",

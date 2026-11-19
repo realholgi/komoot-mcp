@@ -40,17 +40,18 @@ def _number(value, *, positive=False):
 
 
 def route_summary(route, *, constitution=None):
-    """Explain native values without changing them or assigning unverified UI labels."""
+    """Explain route values. Use only observed English pace labels."""
     distance = _number(route.get("distance"))
     raw_duration = route.get("duration")
     duration = _number(raw_duration, positive=True)
     minutes = int(duration / 60 + 0.5) if duration is not None else None
     fitness = route.get("constitution", constitution)
-    # Public English Hiking planner: selecting Fast sent and returned constitution=4.
-    # Observed 2026-11-18; other numeric label mappings are not established.
+    # Public English planner selections matched sent and returned values.
+    # See docs/pace-verification.md for observations on 2026-11-18.
+    labels = {1: "Relaxed", 2: "Steady", 3: "Moderate", 4: "Fast", 5: "Very fast"}
     label_verified = (
-        route.get("sport") == "hike"
-        and not isinstance(fitness, bool) and isinstance(fitness, Real) and fitness == 4
+        route.get("sport") in {"hike", "jogging", "touringbicycle", "mtb", "racebike", "mtb_easy"}
+        and not isinstance(fitness, bool) and isinstance(fitness, int) and fitness in labels
     )
     pace = {
         "distance_m": distance,
@@ -59,14 +60,14 @@ def route_summary(route, *, constitution=None):
         "duration_status": "valid" if duration is not None else ("missing" if raw_duration is None else "invalid"),
         "average_speed_kmh": distance * 3.6 / duration if distance is not None and duration is not None else None,
         "constitution": fitness,
-        "constitution_label": "Fast" if label_verified else None,
+        "constitution_label": labels[fitness] if label_verified else None,
         "constitution_label_verified": label_verified,
         "label_language": "en" if label_verified else None,
         "constitution_label_source": {
             "url": "https://www.komoot.com/plan",
             "observed_on": "2026-11-18",
-            "sport": "hike",
-            "method": "Selecting Fast in the public English planner sent and returned constitution=4.",
+            "sport": route.get("sport"),
+            "method": "Each English preset selection matched the sent and returned constitution.",
         } if label_verified else None,
     }
     warnings = []

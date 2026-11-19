@@ -36,11 +36,15 @@ def _iso_date(value, end_of_day=False):
 
 
 class KomootAPIError(Exception):
-    def __init__(self, message, status_code=None, body=""):
+    def __init__(self, message, status_code=None, body="", *, tour_id=None,
+                 confirmed_changes=None, operation_state=None, code=None):
         super().__init__(message)
         self.status_code = status_code
         self.body = body
-
+        self.tour_id = tour_id
+        self.confirmed_changes = confirmed_changes
+        self.operation_state = operation_state
+        self.code = code
 
 class KomootClient:
     def __init__(self, auth_manager, rate_limiter):
@@ -591,17 +595,41 @@ class KomootClient:
         except Exception as error:
             raise KomootAPIError(
                 f"Tour {tour_id} write succeeded but readback failed: {error}; "
-                "inspect this tour before retrying"
+                "inspect this tour before retrying",
+                tour_id=tour_id, confirmed_changes={"write_accepted": True},
+                operation_state="applied",
             ) from error
         if not verification["verified"]:
             raise KomootAPIError(
                 f"Tour {tour_id} write succeeded but readback differs for "
                 + ", ".join(verification["mismatches"])
-                + "; inspect this tour before retrying"
+                + "; inspect this tour before retrying",
+                tour_id=tour_id,
+                confirmed_changes={key: value for key, value in verification["observed"].items()
+                                   if key in requested and value == requested[key]},
+                operation_state="applied",
             )
         return verification
 
-    async def update_planned_tour(self, tour_id, route_response):
+    async def preview_tour_update(self, tour_id, route_response):
+        """Compare an exact replacement with the current tour without writing."""
+        from komoot_mcp.change_preview import preview_token, route_changes
+        from komoot_mcp.persistence import planned_payload, validate_replacement
+
+        if isinstance(tour_id, bool) or int(tour_id) <= 0:
+            raise ValueError("tour_id must be positive")
+        tour_id = int(tour_id)
+        replacement = planned_payload(route_response)
+        validate_replacement(replacement)
+        current = await self.get_tour(tour_id)
+        if current.get("type") != "tour_planned":
+            raise ValueError("Only tour_planned routes can be replaced")
+        coordinates = await self.get_tour_coordinates(tour_id)
+        return {"tour_id": tour_id,
+                "preview_token": preview_token(tour_id, current, coordinates, route_response),
+                **route_changes(current, replacement)}
+
+    async def update_planned_tour(self, tour_id, route_response, preview_token=None):
         """Replace an existing planned route with previewed geometry, without routing."""
         from komoot_mcp.persistence import planned_payload, validate_replacement
 
@@ -617,6 +645,17 @@ class KomootClient:
             raise KomootAPIError("Only tour_planned routes can be replaced; no update sent")
         if current.get("status") not in {"private", "friends", "public"}:
             raise KomootAPIError("Tour visibility is missing or unsupported; no update sent")
+        from komoot_mcp.change_preview import preview_token as make_token
+
+        if not isinstance(preview_token, str) or not preview_token:
+            raise ValueError("Preview this tour update first and supply preview_token; no update sent")
+        coordinates = await self.get_tour_coordinates(tour_id)
+        if preview_token != make_token(tour_id, current, coordinates, route_response):
+            raise KomootAPIError(
+                "Tour or replacement changed since preview; preview again; no update sent",
+                tour_id=tour_id, confirmed_changes={}, operation_state="not_attempted",
+                code="preview_conflict",
+            )
         preserved = {
             key: current[key]
             for key in ("name", "status", "description", "date", "gear")
@@ -638,6 +677,7 @@ class KomootClient:
                 f"Tour {tour_id} update outcome is not verified: {error}; "
                 "inspect this tour before retrying",
                 status_code=error.status_code, body=error.body,
+                tour_id=tour_id, confirmed_changes={}, operation_state="unknown",
             ) from error
         verification = await self._verify_planned_tour(
             tour_id, body, geometry=geometry,
@@ -1037,14 +1077,31 @@ class KomootClient:
             body.update(timing)
         if not body:
             raise KomootAPIError("No fields to update")
-        result = await self._komoot_patch(url, json_body=body)
+        try:
+            result = await self._komoot_patch(url, json_body=body)
+        except Exception as error:
+            raise KomootAPIError(
+                f"Tour {tour_id} update outcome is unknown. Inspect the tour before retrying.",
+                tour_id=int(tour_id), confirmed_changes={}, operation_state="unknown",
+                status_code=getattr(error, "status_code", None),
+            ) from error
         if timing:
-            verified = await self._komoot_get(url)
+            try:
+                verified = await self._komoot_get(url)
+            except Exception as error:
+                raise KomootAPIError(
+                    f"Tour {tour_id} update was accepted but readback failed. Inspect the tour before retrying.",
+                    tour_id=int(tour_id), confirmed_changes={"write_accepted": True},
+                    operation_state="applied",
+                ) from error
             mismatches = [field for field, value in timing.items() if verified.get(field) != value]
             if mismatches:
                 raise KomootAPIError(
                     "Tour update sent but readback differs for "
-                    + ", ".join(mismatches) + "; inspect the tour before retrying"
+                    + ", ".join(mismatches) + "; inspect the tour before retrying",
+                    tour_id=int(tour_id), operation_state="applied",
+                    confirmed_changes={field: value for field, value in body.items()
+                                       if verified.get(field) == value},
                 )
             return verified
         return result
