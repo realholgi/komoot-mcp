@@ -64,10 +64,12 @@ def register(mcp):
 
         constitution is integer fitness from 1 to 5. roundtrip appends the
         start only if needed. Equal start/end coordinates always enable Komoot's
-        native roundtrip setting, even with roundtrip=False. sport accepts hike, trail_run, mountain_bike,
-        road_cycle, gravel_ride (touringbicycle). Native aliases are mtb,
-        mountainbike, touringbicycle, racebike, e_racebike, e_mtb, jogging,
-        nordicwalking, and e_touringbicycle. Unknown names are rejected.
+        native roundtrip setting, even with roundtrip=False. sport accepts hike, mountaineering, trail_run, mountain_bike,
+        road_cycle, gravel_ride, enduro, e_mountain_bike, e_road_cycle, e_gravel_ride, and e_enduro.
+        Gravel uses mtb_easy. Enduro uses mtb_advanced. E-bike profiles stay separate.
+        Native aliases include mtb, mountainbike, touringbicycle, racebike, jogging,
+        nordicwalking, mtb_easy, mtb_advanced, and their supported e_ variants.
+        Unknown names fail before network access.
         waypoint_names contains one name or null per input coordinate.
         Names stay attached to the ordered start, via points, and end.
         The closing point uses special:back instead of a duplicate name or POI.
@@ -180,9 +182,10 @@ def register(mcp):
         """Plan from [lat, lng] pairs and create a planned tour in one call.
 
         Side effect: saves the result on Komoot, private by default.
-        sport accepts hike, trail_run, mountain_bike, road_cycle, gravel_ride
-        (touringbicycle), plus native mtb, mountainbike, touringbicycle,
-        racebike, e_racebike, e_mtb, jogging, nordicwalking, e_touringbicycle.
+        sport accepts hike, mountaineering, trail_run, mountain_bike, road_cycle,
+        gravel_ride (mtb_easy), enduro (mtb_advanced), e_mountain_bike,
+        e_road_cycle, e_gravel_ride, e_enduro, and supported native aliases.
+        E-bike profiles stay separate. Unknown names fail before network access.
         constitution is integer fitness 1–5. roundtrip appends the start if needed.
         Equal start/end coordinates always enable Komoot's native roundtrip setting.
         Readback verifies the saved visibility, sport, fitness, and waypoint references.

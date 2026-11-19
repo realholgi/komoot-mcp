@@ -37,7 +37,7 @@ def _iso_date(value, end_of_day=False):
 
 class KomootAPIError(Exception):
     def __init__(self, message, status_code=None, body="", *, tour_id=None,
-                 confirmed_changes=None, operation_state=None, code=None):
+                 confirmed_changes=None, operation_state=None, code=None, place_id=None):
         super().__init__(message)
         self.status_code = status_code
         self.body = body
@@ -45,6 +45,7 @@ class KomootAPIError(Exception):
         self.confirmed_changes = confirmed_changes
         self.operation_state = operation_state
         self.code = code
+        self.place_id = place_id
 
 class KomootClient:
     def __init__(self, auth_manager, rate_limiter):
@@ -126,14 +127,27 @@ class KomootClient:
     async def list_tours(
         self, page=0, limit=50, sport_type=None, status=None,
         start_date=None, end_date=None, name=None, sort_field="date",
-        sort_direction="desc", tour_type=None,
+        sort_direction="desc", tour_type=None, center=None, max_distance=None,
     ):
         """List native tour records, including empty HAL result pages."""
+        from komoot_mcp.routing import validate_coordinates
+
+        if center is not None:
+            center = validate_coordinates([center])[0]
+        if max_distance is not None:
+            if (center is None or isinstance(max_distance, bool)
+                    or not isinstance(max_distance, (int, float))
+                    or not math.isfinite(max_distance) or max_distance <= 0):
+                raise ValueError("max_distance needs center and a finite positive distance in metres")
+        if sort_field == "proximity" and center is None:
+            raise ValueError("proximity sorting needs center")
         user_id, _ = await asyncio.to_thread(self._basic_auth)
         params = {
             "page": page, "limit": limit, "sport_types": sport_type,
             "type": tour_type, "name": name, "sort_field": sort_field,
             "sort_direction": sort_direction,
+            "center": ",".join(str(value) for value in center) if center is not None else None,
+            "max_distance": max_distance,
             "start_date": _iso_date(start_date),
             "end_date": _iso_date(end_date, end_of_day=True),
         }
@@ -367,7 +381,9 @@ class KomootClient:
         )
         if not isinstance(result, dict) or not result.get("id"):
             raise KomootAPIError("Upload response did not identify a tour; do not blindly retry")
-        return {**result, "duplicate": code == 202}
+        return {**result, "duplicate": code == 202, "created": code == 201,
+                "import_status": "already_exists" if code == 202 else ("created" if code == 201 else "accepted"),
+                "http_status": code}
 
     @staticmethod
     def _extract_gpx_name(gpx_obj):
@@ -908,6 +924,9 @@ class KomootClient:
             "Accept": "application/hal+json, application/json",
         }
         request_headers.update(headers or {})
+        if method.upper() == "GET" and "/tours/" in url and not (params or {}).get("_embedded"):
+            # Snapshot and write-readback callers must revalidate even fresh entries.
+            request_headers["Cache-Control"] = "no-cache"
         requests.validate_destination(url, authenticated=not no_auth)
         auth_pair = None if no_auth else await asyncio.to_thread(self._basic_auth)
 
@@ -1175,21 +1194,15 @@ class KomootClient:
         return await self._komoot_get(url, params=params)
 
     async def discover_with_attributes(
-        self, lat, lng, sport=None, attributes=None,
+        self, lat, lng, sport=None, attributes=None, max_distance=20000,
     ):
-        """``GET /v007/discover_tours/from_location/route_attributes/``."""
-        url = (
-            "https://api.komoot.de/v007/discover_tours/"
-            "from_location/route_attributes/"
-        )
-        params = {"lat": float(lat), "lng": float(lng)}
+        """Read tours with route_attributes filters, not the filter catalog."""
+        url = "https://www.komoot.com/api/v007/discover_tours/from_location/"
+        params = {"lat": float(lat), "lng": float(lng), "max_distance": int(max_distance)}
         if sport:
             params["sport"] = sport
         if attributes:
-            if isinstance(attributes, (list, tuple)):
-                params["attributes"] = ",".join(str(a) for a in attributes)
-            else:
-                params["attributes"] = str(attributes)
+            params["route_attributes"] = ",".join(attributes) if isinstance(attributes, (list, tuple)) else attributes
         return await self._komoot_get(url, params=params)
 
     async def route_attribute_options(

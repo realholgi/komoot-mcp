@@ -14,11 +14,13 @@ def register(mcp):
         status: str = None,
         name: str = None,
         sort_field: str = "date",
-        sort_direction: str = "desc",
+        sort_direction: str | None = None,
         tour_type: str = None,
         start_date: str = None,
         end_date: str = None,
         compact: bool = True,
+        center: list[float] | None = None,
+        max_distance: float | None = None,
     ) -> dict:
         """List your Komoot tours with filters.
 
@@ -28,22 +30,32 @@ def register(mcp):
             sport_type: Filter by sport (e.g. 'hike', 'touringbicycle', 'mountainbike', 'racebike', 'run')
             status: Filter by visibility ('public', 'private', 'friends')
             name: Search by tour name (case-insensitive substring)
-            sort_field: Sort by ('date', 'name', 'elevation', 'duration')
-            sort_direction: Sort order ('asc' or 'desc')
+            sort_field: Sort by date, name, elevation, duration, or proximity.
+            sort_direction: asc or desc. Default: asc for proximity, otherwise desc.
             tour_type: 'tour_planned', 'tour_recorded', or all tours.
             start_date: Inclusive ISO date or timestamp lower bound.
             end_date: Inclusive ISO date or timestamp upper bound.
             compact: False returns full tour records and pagination as JSON.
+            center: Search origin as [latitude, longitude]. Proximity sorting needs it.
+            max_distance: Positive search radius in metres. Requires center.
+                This searches tour start locations, not every point along each route.
         """
+        sort_direction = sort_direction or ("asc" if sort_field == "proximity" else "desc")
+        location = {}
+        if center is not None:
+            location["center"] = center
+        if max_distance is not None:
+            location["max_distance"] = max_distance
         result = await get_client().list_tours(
             page=page, limit=limit, sport_type=sport_type, status=status, name=name,
             sort_field=sort_field, sort_direction=sort_direction,
             tour_type=tour_type, start_date=start_date, end_date=end_date,
+            **location,
         )
         if not compact:
             return result
         return {**{key: value for key, value in result.items() if key != "tours"},
-                "tours": [{key: tour[key] for key in ("id", "name", "sport", "status", "distance", "elevation_up") if key in tour}
+                "tours": [{key: tour[key] for key in ("id", "name", "sport", "status", "distance", "elevation_up", "start_point") if key in tour}
                           for tour in result.get("tours", [])]}
 
     @mcp.tool()

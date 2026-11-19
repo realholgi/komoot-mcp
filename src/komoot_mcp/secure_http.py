@@ -5,6 +5,10 @@ from urllib.parse import urlsplit
 import requests
 from requests import exceptions
 
+from komoot_mcp.http_cache import TourResponseCache
+
+_TOUR_CACHE = TourResponseCache()
+
 _AUTH_HOSTS = frozenset({"api.komoot.de", "www.komoot.com", "weather-along-tour-api.komoot.de"})
 _PUBLIC_HOSTS = _AUTH_HOSTS | {"photon.komoot.io"}
 
@@ -30,12 +34,15 @@ def request(method: str, url: str, *, auth=None, headers=None, **kwargs):
     """Never follow redirects or read proxy/.netrc credentials from the environment."""
     authenticated = auth is not None or any(k.lower() == "authorization" for k in (headers or {}))
     validate_destination(url, authenticated=authenticated)
-    with requests.Session() as session:
-        session.trust_env = False
-        response = session.request(
-            method, url, auth=auth, headers=headers,
-            allow_redirects=False, **kwargs,
-        )
+    def send(request_headers):
+        with requests.Session() as session:
+            session.trust_env = False
+            return session.request(
+                method, url, auth=auth, headers=request_headers,
+                allow_redirects=False, **kwargs,
+            )
+
+    response = _TOUR_CACHE.request(method, url, auth, headers, kwargs, send)
     if 300 <= response.status_code < 400:
         raise requests.RequestException("Komoot redirect refused; no credentials forwarded")
     return response

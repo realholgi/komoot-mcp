@@ -87,7 +87,8 @@ async def test_upload_http_status_id_and_payload_survive_transport(client, monke
     assert sent["auth"] == ("user123", "test-token")
     assert sent["data"] == gpx.encode()
     assert sent["params"]["status"] == "private"
-    assert result == {"id": 42, "duplicate": True}
+    assert result == {"id": 42, "duplicate": True, "created": False,
+                      "import_status": "already_exists", "http_status": 202}
 
 
 @pytest.mark.asyncio

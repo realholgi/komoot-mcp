@@ -55,7 +55,7 @@ Use the client's tool discovery for current argument schemas.
 | Guide | Contents |
 | --- | --- |
 | [MCP setup](docs/mcp-setup.md) | Installation, client configuration, HTTP gateway and troubleshooting |
-| [Reference](docs/reference.md) | 54 tools, results, resources, prompts and coordinate pages |
+| [Reference](docs/reference.md) | Tools, results, resources, prompts and coordinate pages |
 | [Prepared-route import](docs/prepared-import.md) | Exporter workflow, preview, approval, receipts and recovery |
 | [Prepared artifact format](docs/prepared-artifacts.md) | The version 1 file handoff |
 | [Development](docs/development.md) | Architecture, locked dependencies, offline tests and package checks |

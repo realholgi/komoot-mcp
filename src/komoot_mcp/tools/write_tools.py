@@ -43,6 +43,10 @@ def register(mcp):
                 the filepath path) is used.
             status: Requested visibility, private by default. The returned
                 tour should be read back to verify Komoot honored it.
+
+        Import results distinguish HTTP 201 Created from HTTP 202 duplicates.
+        import_status is created or already_exists. A duplicate keeps its existing ID.
+        This tool does not rename or change the visibility of an existing duplicate.
         """
         result = await get_client().upload_tour(
             filepath=filepath, data_type=data_type, sport=sport, gpx_content=gpx_content,

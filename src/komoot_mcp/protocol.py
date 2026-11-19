@@ -29,11 +29,15 @@ _READ_ONLY = {
     "komoot_find_pois_nearby",
     "komoot_resolve_place",
     "komoot_preview_tour_update", "komoot_compare_route_variants",
+    "komoot_list_private_places", "komoot_get_poi_external_reviews",
+    "komoot_get_highlight_content",
+    "komoot_search_thematic_tours", "komoot_analyze_tour_sections",
 }
 _CREATE = {
     "komoot_login", "komoot_upload_tour", "komoot_plan_and_upload",
     "komoot_create_share_link", "komoot_bookmark_highlight", "komoot_import_gpx_route",
     "komoot_create_planned_tour", "komoot_plan_and_save_tour",
+    "komoot_create_private_place",
 }
 _CHANGE = {
     "komoot_modify_tour", "komoot_delete_tour", "komoot_modify_tour_extended",
@@ -41,6 +45,7 @@ _CHANGE = {
     "komoot_download_tour_gpx", "komoot_download_tour_fit", "komoot_export_all_tours",
     "komoot_download_smart_tour_gpx",
     "komoot_update_planned_tour",
+    "komoot_rename_private_place", "komoot_delete_private_place",
 }
 
 # Explicit membership prevents a new write tool from inheriting read-only hints.
@@ -71,6 +76,7 @@ RESULT_SCHEMA = {
                 "operation_state": {"enum": ["unchanged", "not_attempted", "unknown", "applied"]},
                 "status_code": {"type": "integer"},
                 "tour_id": {"type": ["integer", "string"]},
+                "place_id": {"type": ["integer", "string"]},
                 "confirmed_changes": {"type": "object", "additionalProperties": True},
             },
             "required": ["code", "message", "retry_safe", "operation_state"],
@@ -140,6 +146,8 @@ def _failure(error, *, read_only):
             details["operation_state"] = error.operation_state
         if error.tour_id is not None:
             details["tour_id"] = error.tour_id
+        if error.place_id is not None:
+            details["place_id"] = error.place_id
         if error.confirmed_changes is not None:
             details["confirmed_changes"] = error.confirmed_changes
     return _result({"ok": False, "error": details}, is_error=True)

@@ -25,6 +25,10 @@ from komoot_mcp.tools import (
     highlight_tools,
     native_routing_tools,
     publication_tools,
+    private_place_tools,
+    poi_review_tools,
+    thematic_tools,
+    section_tools,
     routing_tools,
     share_tools,
     write_tools,
@@ -60,6 +64,10 @@ def create_server(host="127.0.0.1", port=8000, *, read_only=False):
     extended_discovery_tools.register(mcp)
     native_routing_tools.register(mcp)
     publication_tools.register(mcp)
+    private_place_tools.register(mcp)
+    poi_review_tools.register(mcp)
+    thematic_tools.register(mcp)
+    section_tools.register(mcp)
     guidance.register(mcp)
     return mcp
 

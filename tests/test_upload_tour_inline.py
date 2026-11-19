@@ -33,7 +33,8 @@ async def test_inline_upload_preserves_poi_names_comments_and_private_visibility
     assert sent["params"] == {
         "data_type": "gpx", "sport": "hike", "name": "inline-track", "status": "private",
     }
-    assert result == {"id": 999, "status": "private", "duplicate": False}
+    assert result == {"id": 999, "status": "private", "duplicate": False,
+                      "created": True, "import_status": "created", "http_status": 201}
 
 
 @pytest.mark.asyncio
@@ -75,6 +76,9 @@ async def test_duplicate_is_identified_without_modifying_existing_tour(client):
     assert result["id"] == 123
     assert result["name"] == "Existing tour"
     assert result["duplicate"] is True
+    assert result["created"] is False
+    assert result["import_status"] == "already_exists"
+    assert result["http_status"] == 202
     assert client._http_request.await_count == 1
 
 

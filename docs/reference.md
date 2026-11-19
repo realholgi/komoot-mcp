@@ -3,7 +3,7 @@
 [Project overview](../README.md) | [MCP setup](mcp-setup.md) | [Prepared-route import](prepared-import.md)
 
 Use MCP tool discovery for current argument schemas and side-effect hints.
-The full catalog has 54 tools. Startup policy can hide tools.
+Startup policy can hide tools.
 Unknown parameter names fail instead of being ignored.
 
 ## Tool groups
@@ -23,7 +23,13 @@ Unknown parameter names fail instead of being ignored.
 
 Tour weather is experimental. Verify it at runtime.
 
-### Tour data (6)
+`komoot_list_tours` can search your own tour start locations.
+Set `center: [lat, lng]`, `max_distance` in metres, and `sort_field: "proximity"`.
+Proximity sorts nearest first unless you set `sort_direction: "desc"`.
+This does not search every point along each route.
+Compact results keep the start coordinates and pagination.
+
+### Tour data (7)
 
 - `komoot_get_tour_coordinates`
 - `komoot_get_tour_gpx`
@@ -31,12 +37,22 @@ Tour weather is experimental. Verify it at runtime.
 - `komoot_get_tour_way_types`
 - `komoot_get_tour_surfaces`
 - `komoot_get_tour_timeline`
+- `komoot_analyze_tour_sections`
 
 `komoot_get_tour_gpx` returns complete XML in `gpx_content`.
 `size_bytes` counts UTF-8 bytes. `truncated` is always `false`.
 The server does not silently shorten GPX content.
 
-### Discovery, highlights and collections (14)
+`komoot_analyze_tour_sections` joins coordinate-index spans for way types, surfaces, and directions.
+Each section reports its start and end in kilometres from the tour start.
+Use `start_km` and `end_km` to inspect part of the route.
+Distances come from the coordinates, not whole-tour percentages.
+Documented English labels accompany native codes. Unknown codes keep a null label.
+Missing or conflicting spans stay unknown. Directions retain their original fields.
+This can locate a documented stone surface at a specific kilometre.
+It does not infer terrain, difficulty, or access that Komoot did not report.
+
+### Discovery, highlights and collections (17)
 
 - `komoot_recommend_tours_near`
 - `komoot_smart_tours_near`
@@ -52,8 +68,51 @@ The server does not silently shorten GPX content.
 - `komoot_get_highlight_tips`
 - `komoot_get_collection`
 - `komoot_get_collection_tours`
+- `komoot_get_poi_external_reviews`
+- `komoot_get_highlight_content`
+- `komoot_search_thematic_tours`
 
 Bookmark tools change the account.
+
+`komoot_get_poi_external_reviews` reads Komoot's existing external review data for a map POI.
+It keeps provider IDs, ratings, counts, and source links unchanged.
+An empty `reviews` list returns `status: "empty"`. It does not mean the POI was not found.
+No reviews or scores are invented. Use a Komoot POI ID, not a Highlight or OSM ID.
+
+`komoot_get_highlight_content` reads editorial `text`, `details`, and `features`.
+It differs from community tips. `available_fields` lists fields with content.
+Missing fields remain null, and an empty result returns `status: "empty"`.
+The complete native response stays in `content`. Text can contain HTML.
+
+`komoot_search_thematic_tours` checks live filter names before searching.
+Examples include `waterfalls`, `caves`, `canyons_gorges`, `lakes_rivers`, and `mountain_hut`.
+For a family hike with waterfalls, set `themes: ["waterfalls"]` and `family_friendly: true`.
+Set `dog_friendly: true` to request that filter too.
+Unavailable filters fail instead of being ignored. Search results retain native pagination.
+Suitability tags do not guarantee safe conditions or legal access with a dog.
+Filtered discovery sends `route_attributes` to the tour result endpoint.
+The `/route_attributes/` endpoint returns available filters and counts, not tour records.
+
+### Private places (4)
+
+- `komoot_create_private_place`
+- `komoot_rename_private_place`
+- `komoot_list_private_places`
+- `komoot_delete_private_place`
+
+These tools manage private custom places without creating a tour or public Highlight.
+Create a place with `name`, `lat`, and `lng`.
+Use its returned `place_id` to rename or delete it.
+Listing excludes the home address, bookmarked Highlights, and map POIs.
+Renaming preserves coordinates and address data. These tools do not change the home address.
+Create and rename read back the name and coordinates. Delete checks that the ID no longer appears.
+After an uncertain write, list places before retrying. Errors retain `place_id` when known.
+
+Komoot's [Saved places documentation](https://support.komoot.com/hc/en-us/articles/10194677488026-Places-and-Saved-places)
+states that these locations are visible only to their owner.
+The web planner uses `/v007/users/{username}/addresses`, `type=other`, and `is_home_address=false` for custom places.
+This contract comes from shipped `60817.edf235f94138ffc7.js`, module `51393`, inspected on 2026-11-18.
+No live account create, rename, or delete was used to test these tools.
 
 ### Downloads and exports (4)
 
@@ -66,6 +125,10 @@ Download tools support inline results or local files, as their schemas specify.
 File output preserves download bytes. Existing files require `overwrite=true` for replacement.
 FIT downloads support planned tours. There is no `komoot_get_tour_fit` tool.
 Downloads count as write tools because they can create local files, even when a call requests inline content.
+File upload results preserve the HTTP status and distinguish new tours from duplicates.
+HTTP 201 returns `created: true` and `import_status: "created"`.
+HTTP 202 returns `duplicate: true`, `created: false`, and `import_status: "already_exists"`.
+The duplicate keeps its existing tour ID. The tool does not rename it or change its visibility.
 
 ### Planning and geocoding (11)
 
@@ -309,10 +372,30 @@ Fitness, `constitution`, is an integer from 1 to 5.
 | `trail_run` | `jogging` |
 | `mountain_bike` | `mtb` |
 | `road_cycle` | `racebike` |
-| `gravel_ride` | `touringbicycle` |
+| `gravel_ride` | `mtb_easy` |
+| `enduro` | `mtb_advanced` |
+| `mountaineering` | `mountaineering` |
+| `e_mountain_bike` | `e_mtb` |
+| `e_road_cycle` | `e_racebike` |
+| `e_gravel_ride` | `e_mtb_easy` |
+| `e_enduro` | `e_mtb_advanced` |
 
 Planning tools also accept native names such as `racebike` and `e_mtb`.
 Their descriptions list accepted names. Unknown names fail before network access.
+
+### HTTP caching
+
+Successful JSON tour reads on `api.komoot.de/v007/tours/` can use a process-local cache.
+It holds at most 128 responses and 16 MiB.
+Entries stay separate by credentials, query parameters, and request representation headers.
+Nothing is written to disk.
+The cache uses `Cache-Control` freshness, `Date`, and `Age`.
+Expired entries use `If-None-Match` with an ETag, or `If-Modified-Since` with Last-Modified.
+A valid HTTP 304 reuses the saved body.
+`no-store` responses, wildcard Vary, cookies, streams, and non-JSON downloads bypass storage.
+Writes invalidate that account's cached tours before and after the request, including uncertain failures.
+Tour snapshots and write readbacks force revalidation even when an entry is fresh.
+This saves repeated body transfers. It does not provide atomic write protection.
 
 ### Pagination
 

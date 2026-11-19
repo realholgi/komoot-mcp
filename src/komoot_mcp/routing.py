@@ -16,29 +16,30 @@ class RoutingError(Exception):
     pass
 
 
-# Public sport identifiers → Komoot's native-planner sport vocabulary.
-# The names diverge from kompy's upload activity strings.
-# Komoot's own planner accepts these on the
-# ``/api/routing/tour`` endpoint:
-#
-#   mtb, mountainbike, touringbicycle, racebike, e_racebike, e_mtb,
-#   jogging, hike, nordicwalking, e_touringbicycle
-#
-# Komoot does not have a separate "gravel" profile — its tour planner
-# folds gravel routing into ``touringbicycle`` (the all-rounder bike
-# profile). We document that in the tool docstring.
+# Public sport names map to distinct native planner profiles.
+# Komoot's public planner bundle lists mtb_easy (gravel), mtb_advanced
+# (enduro), mountaineering, and five electric cycling profiles.
+# Source: https://www.komoot.com/assets/main.4aa1c01d52651411.js
+# Observed on 2026-11-18. Reference-sport groups do not replace these profiles.
 NATIVE_SPORT_PROFILES = {
     "hike": "hike",
+    "mountaineering": "mountaineering",
     "trail_run": "jogging",
     "mountain_bike": "mtb",
     "road_cycle": "racebike",
-    "gravel_ride": "touringbicycle",
+    "gravel_ride": "mtb_easy",
+    "enduro": "mtb_advanced",
+    "e_mountain_bike": "e_mtb",
+    "e_road_cycle": "e_racebike",
+    "e_gravel_ride": "e_mtb_easy",
+    "e_enduro": "e_mtb_advanced",
 }
 
 
 _NATIVE_SPORT_ALIASES = {
     "mtb", "mountainbike", "touringbicycle", "racebike", "e_racebike",
-    "e_mtb", "jogging", "nordicwalking", "e_touringbicycle",
+    "e_mtb", "mtb_easy", "mtb_advanced", "e_mtb_easy", "e_mtb_advanced",
+    "jogging", "nordicwalking", "e_touringbicycle",
 }
 
 
@@ -290,10 +291,9 @@ class KomootNativePlanner:
                 (start + end). Intermediate points become routing
                 via-points. Roundtrips: pass ``[start, start]`` plus
                 whatever extra via-points you want.
-            sport_komoot: One of the Komoot-vocabulary sport names
-                (e.g. ``"mtb"``, ``"touringbicycle"``, ``"hike"``).
-                Use :data:`NATIVE_SPORT_PROFILES` to map from our
-                public vocab.
+            sport_komoot: A native planner profile, such as ``"hike"``,
+                ``"mtb_easy"``, or ``"e_mtb_advanced"``.
+                Use :func:`native_sport` to resolve public names and aliases.
             constitution: Fitness self-rating 1-5; affects duration
                 estimates but not the geometry. Default 3 (average).
 

@@ -132,7 +132,12 @@ async def test_saved_plan_reports_units_and_requested_not_verified_visibility(pl
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sport,profile", [
     ("hike", "hike"), ("trail_run", "jogging"), ("mountain_bike", "mtb"),
-    ("road_cycle", "racebike"), ("gravel_ride", "touringbicycle"),
+    ("road_cycle", "racebike"), ("gravel_ride", "mtb_easy"),
+    ("mountaineering", "mountaineering"), ("enduro", "mtb_advanced"),
+    ("e_mountain_bike", "e_mtb"), ("e_road_cycle", "e_racebike"),
+    ("e_gravel_ride", "e_mtb_easy"), ("e_enduro", "e_mtb_advanced"),
+    ("mtb_easy", "mtb_easy"), ("mtb_advanced", "mtb_advanced"),
+    ("e_mtb_easy", "e_mtb_easy"), ("e_mtb_advanced", "e_mtb_advanced"),
     ("mtb", "mtb"), ("mountainbike", "mountainbike"),
     ("touringbicycle", "touringbicycle"), ("racebike", "racebike"),
     ("e_racebike", "e_racebike"), ("e_mtb", "e_mtb"),

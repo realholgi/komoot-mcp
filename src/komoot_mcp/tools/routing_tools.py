@@ -118,10 +118,10 @@ def register(mcp):
         friends, or public. The result reports requested visibility, not a
         verified readback. constitution is integer fitness from 1 to 5.
 
-        sport accepts hike, trail_run, mountain_bike, road_cycle, gravel_ride.
-        Gravel uses touringbicycle. Native aliases are mtb, mountainbike,
-        touringbicycle, racebike, e_racebike, e_mtb, jogging, nordicwalking,
-        and e_touringbicycle. Unknown names are rejected before network access.
+        sport accepts hike, mountaineering, trail_run, mountain_bike, road_cycle,
+        gravel_ride (mtb_easy), enduro (mtb_advanced), e_mountain_bike,
+        e_road_cycle, e_gravel_ride, e_enduro, and supported native aliases.
+        E-bike profiles stay separate. Unknown names fail before network access.
 
         waypoints contains ordered 'lat,lng' pairs separated by '|'.
         roundtrip appends the start if needed after the end and waypoints.

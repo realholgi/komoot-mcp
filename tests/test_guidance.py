@@ -106,7 +106,7 @@ async def test_prompts_are_discoverable_and_only_render_workflow(read_only, forb
                 "prepared_path": "~/unresolved/prepared.json",
                 "publication_directory": "relative/publication", "update": "true",
             }))
-    assert "touringbicycle" in plan
+    assert "mtb_easy" in plan
     assert "[lat, lng]" in plan
     assert "komoot_plan_native_route" in plan
     assert "komoot_preview_prepared" in review

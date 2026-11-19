@@ -73,7 +73,8 @@ def register(mcp):
         """Static sport mappings, units, artifact limits and tool result contract."""
         return json.dumps({
             "sport_profiles": NATIVE_SPORT_PROFILES,
-            "sport_notes": "gravel_ride uses touringbicycle; there is no separate native gravel profile. "
+            "sport_notes": "gravel_ride uses mtb_easy. enduro uses mtb_advanced. "
+                           "Mountaineering and supported e-bike variants use separate profiles. "
                            "Explicit native aliases are also accepted by routing tools.",
             "units": _UNITS,
             "coordinate_paging": _COORDINATE_PAGING,
