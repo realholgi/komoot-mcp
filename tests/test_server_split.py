@@ -30,6 +30,8 @@ async def test_importer_preserves_exact_komoot_catalog():
         "komoot_get_highlight_content",
         "komoot_search_thematic_tours",
         "komoot_analyze_tour_sections",
+        "komoot_get_tour_briefing",
+        "komoot_find_my_tours_near",
         "komoot_login",
         "komoot_list_tours",
         "komoot_get_tour",

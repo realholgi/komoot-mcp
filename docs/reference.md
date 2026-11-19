@@ -8,10 +8,11 @@ Unknown parameter names fail instead of being ignored.
 
 ## Tool groups
 
-### Account and tour browsing (10)
+### Account and tour browsing (11)
 
 - `komoot_login`
 - `komoot_list_tours`
+- `komoot_find_my_tours_near`
 - `komoot_get_tour`
 - `komoot_get_tour_full`
 - `komoot_get_highlight`
@@ -29,7 +30,36 @@ Proximity sorts nearest first unless you set `sort_direction: "desc"`.
 This does not search every point along each route.
 Compact results keep the start coordinates and pagination.
 
-### Tour data (7)
+The `name` filter searches tour titles only.
+For requests such as "my Hundsbach tour", use `komoot_find_my_tours_near` even if the title search returns nothing.
+Keep its default 5000-metre radius unless the user specifies a distance.
+An empty search covers only the selected place, radius, tour type and scanned records.
+Use a supplied tour URL or ID directly.
+
+`komoot_find_my_tours_near` searches your full tour routes, including start and end.
+Supply `query` with a place name, or `center: [lat, lng]`. Do not supply both.
+Photon resolves place names. Ambiguous names return `places` without reading the account.
+Select a place and call again with its coordinates.
+`radius_m` sets a positive straight-line radius. The default is 5000 metres.
+The search defaults to planned tours. Set `tour_type: null` to include recorded tours.
+Use `sport_type` to filter by sport.
+The search applies no tour-name or start-location filter.
+It checks complete coordinate segments, not only route vertices or simplified lines.
+Results include the nearest distance, route kilometre, and distances to both endpoints.
+`proximity.near` identifies nearby route, start, and end positions.
+These distances do not establish a reachable walking detour.
+
+Each tour needs a coordinate request. `max_tours` limits scanned records to 1–1000.
+The default is 200. `limit` bounds returned matches to 1–100 and defaults to 20.
+The search sorts all matches in the scanned slice before applying `limit`.
+`matched_tours` counts matches in that slice. `results_truncated` reports omitted matches.
+`scan.coverage` reports whether the whole filtered account listing was checked.
+Unavailable geometry appears in `scan.failures`. It does not count as outside the radius.
+Use `scan.next_offset` as `offset` to continue a bounded scan.
+Continuation results rank that slice only. Merge slices to rank a larger search.
+Account edits can shift page positions between calls.
+
+### Tour data (8)
 
 - `komoot_get_tour_coordinates`
 - `komoot_get_tour_gpx`
@@ -38,6 +68,7 @@ Compact results keep the start coordinates and pagination.
 - `komoot_get_tour_surfaces`
 - `komoot_get_tour_timeline`
 - `komoot_analyze_tour_sections`
+- `komoot_get_tour_briefing`
 
 `komoot_get_tour_gpx` returns complete XML in `gpx_content`.
 `size_bytes` counts UTF-8 bytes. `truncated` is always `false`.
@@ -51,6 +82,35 @@ Documented English labels accompany native codes. Unknown codes keep a null labe
 Missing or conflicting spans stay unknown. Directions retain their original fields.
 This can locate a documented stone surface at a specific kilometre.
 It does not infer terrain, difficulty, or access that Komoot did not report.
+
+`komoot_get_tour_briefing` reads supplies, documented sections, and an estimated schedule.
+It does not change the tour or save pauses.
+It searches Komoot map POIs through overlapping circles along the complete route.
+Supply searches contact only Komoot. They use no account credentials or external fallback.
+`corridor_m` sets a straight-line corridor of 1–1000 metres. The default is 300.
+Supply results cover water points, food, groceries, and public toilets.
+Each result keeps its native Komoot category, documented label, IDs, and raw fields.
+Categories use Komoot's shipped map labels, not import or custom-waypoint category IDs.
+Water candidates include springs and mapped drinking-water points. Their category does not verify current drinking safety.
+The result includes a fetch time. Komoot's POI inventory can be incomplete or outdated.
+Opening hours, current availability, access, and drinking safety remain unverified.
+Offsets are straight-line distances. They do not measure a reachable detour.
+Repeated route encounters remain visible for loops and out-and-back tours.
+Search failures, result caps, and unknown categories appear in the coverage report.
+They do not mean that no supplies exist.
+Each circle requests up to 100 results. A reached limit makes supply coverage partial.
+The search needs at most 200 circles. Longer routes return unavailable coverage before any POI request.
+Routes over 20000 coordinates also return unavailable coverage without a shortened search.
+
+Pass `departure_time` as an ISO 8601 timestamp with a timezone.
+For example, use `2026-11-19T09:00:00+01:00`.
+Add pauses with `pauses: [{"km": 8.4, "duration_s": 1200, "name": "Lunch"}]`.
+The schedule uses uniform distance-based pace from the tour duration.
+For recorded tours, it uses `time_in_motion` when available. Otherwise, native duration can include existing stops.
+It adds pauses after arrival and excludes travel away from the route.
+Missing duration or geometry leaves timing unknown.
+Critical sections retain native warning codes and valid kilometre spans.
+Missing spans remain unlocated. Surface labels do not establish difficulty or safe access.
 
 ### Discovery, highlights and collections (17)
 

@@ -24,6 +24,9 @@ def register(mcp):
     ) -> dict:
         """List your Komoot tours with filters.
 
+        For a tour described by a place, use komoot_find_my_tours_near.
+        A name miss does not mean that no route visits the place.
+
         Args:
             page: Page number (0-indexed)
             limit: Results per page (max 50)

@@ -44,6 +44,7 @@ See [MCP setup](docs/mcp-setup.md) for installation without a checkout, credenti
 
 - "List my planned hiking tours."
 - "Plan a hiking route through these coordinates without saving it."
+- "Brief this tour with supplies, critical sections and a pause schedule."
 - "Preview this prepared route set before I approve publication."
 
 Remove `--read-only` before publication.

@@ -17,6 +17,7 @@ from komoot_mcp import guidance
 from komoot_mcp.tools import (
     auth_tools,
     browse_tools,
+    briefing_tools,
     collection_tools,
     data_tools,
     discover_tools,
@@ -24,6 +25,7 @@ from komoot_mcp.tools import (
     extended_discovery_tools,
     highlight_tools,
     native_routing_tools,
+    nearby_tour_tools,
     publication_tools,
     private_place_tools,
     poi_review_tools,
@@ -53,6 +55,7 @@ def create_server(host="127.0.0.1", port=8000, *, read_only=False):
 
     auth_tools.register(mcp)
     browse_tools.register(mcp)
+    briefing_tools.register(mcp)
     data_tools.register(mcp)
     write_tools.register(mcp)
     routing_tools.register(mcp)
@@ -63,6 +66,7 @@ def create_server(host="127.0.0.1", port=8000, *, read_only=False):
     export_tools.register(mcp)
     extended_discovery_tools.register(mcp)
     native_routing_tools.register(mcp)
+    nearby_tour_tools.register(mcp)
     publication_tools.register(mcp)
     private_place_tools.register(mcp)
     poi_review_tools.register(mcp)

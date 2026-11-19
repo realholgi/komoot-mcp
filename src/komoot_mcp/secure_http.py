@@ -1,4 +1,4 @@
-"""Outbound Komoot requests with explicit destinations and no ambient credentials."""
+"""Outbound requests with explicit destinations and no ambient credentials."""
 
 from urllib.parse import urlsplit
 

@@ -32,6 +32,8 @@ _READ_ONLY = {
     "komoot_list_private_places", "komoot_get_poi_external_reviews",
     "komoot_get_highlight_content",
     "komoot_search_thematic_tours", "komoot_analyze_tour_sections",
+    "komoot_get_tour_briefing",
+    "komoot_find_my_tours_near",
 }
 _CREATE = {
     "komoot_login", "komoot_upload_tour", "komoot_plan_and_upload",

@@ -25,12 +25,16 @@ def find_pois_nearby(lat, lng, radius_m=100, limit=20, lang="de"):
         payload = response.json()
     except (requests.RequestException, ValueError) as exc:
         raise GeocoderError(f"Komoot map POI search failed: {exc}") from exc
-    items = payload.get("_embedded", {}).get("items")
+    embedded = payload.get("_embedded") if isinstance(payload, dict) else None
+    items = embedded.get("items") if isinstance(embedded, dict) else None
     if not isinstance(items, list):
         raise GeocoderError("Komoot map POI search returned no item list")
     results = []
     for item in items:
-        point = item.get("point", {})
+        if not isinstance(item, dict):
+            raise GeocoderError("Komoot map POI search returned an invalid item")
+        point = item.get("point")
+        point = point if isinstance(point, dict) else {}
         poi_id = item.get("poi_id")
         results.append({
             "name": item.get("name"),
@@ -38,8 +42,12 @@ def find_pois_nearby(lat, lng, radius_m=100, limit=20, lang="de"):
             "poi_id": poi_id, "osm_id": item.get("osm_id"),
             "category": item.get("category"),
             "waypoint_details": {"poi_id": poi_id} if poi_id else None,
+            "raw": item,
         })
-    return {"results": results}
+    return {
+        "results": results, "returned_count": len(items), "limit": limit,
+        "limit_reached": len(items) >= limit, "completeness": "not_guaranteed",
+    }
 
 
 def resolve_poi_candidate(candidate, nearby):

@@ -85,7 +85,7 @@ def _position(point):
     return math.radians(lat), math.radians(lng)
 
 
-def _distances(points):
+def coordinate_distances(points):
     distances = [0.0]
     previous = None
     for point in points:
@@ -128,7 +128,7 @@ def analyze_tour_sections(tour, start_km: float = 0, end_km: float | None = None
     if not isinstance(embedded, dict):
         embedded = {}
     points = _items(embedded, "coordinates")
-    distances = _distances(points) if points else None
+    distances = coordinate_distances(points) if points else None
     result = {
         "distance_source": "coordinate_haversine",
         "span_convention": "from inclusive, to exclusive for edges; both are coordinate indices",

@@ -154,3 +154,24 @@ async def test_resolve_place_returns_bus_stop_in_read_only_mode_without_credenti
     assert get.call_args.kwargs["params"]["lat"] == 48.6739408
     assert get.call_args.kwargs["params"]["lng"] == 8.1960117
     assert "auth" not in get.call_args.kwargs
+
+
+@pytest.mark.parametrize("payload", [None, [], {"_embedded": []}, {"_embedded": {"items": [None]}}])
+def test_malformed_poi_search_is_not_reported_as_an_empty_inventory(monkeypatch, payload):
+    response = Mock()
+    response.json.return_value = payload
+    monkeypatch.setattr(poi_search.secure_http, "get", Mock(return_value=response))
+    with pytest.raises(GeocoderError):
+        poi_search.find_pois_nearby(48, 8)
+
+
+def test_search_cap_is_visible_and_native_poi_fields_are_preserved(monkeypatch):
+    item = {"name": "WC", "category": 73, "poi_id": "Ab12", "point": {"x": 8, "y": 48},
+            "address_entry": {"city": "Test"}}
+    response = Mock()
+    response.json.return_value = {"_embedded": {"items": [item]}}
+    monkeypatch.setattr(poi_search.secure_http, "get", Mock(return_value=response))
+    result = poi_search.find_pois_nearby(48, 8, limit=1)
+    assert result["limit_reached"] is True
+    assert result["completeness"] == "not_guaranteed"
+    assert result["results"][0]["raw"]["address_entry"] == {"city": "Test"}
