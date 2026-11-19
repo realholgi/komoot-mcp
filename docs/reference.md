@@ -112,6 +112,75 @@ Missing duration or geometry leaves timing unknown.
 Critical sections retain native warning codes and valid kilometre spans.
 Missing spans remain unlocated. Surface labels do not establish difficulty or safe access.
 
+### Overnight places and stages (2)
+
+- `komoot_find_overnight_stays`
+- `komoot_plan_stages`
+
+Both tools require a nonempty `overnight_modes` list. There is no default.
+Use `tent`, `bivouac`, `accommodation`, or a combination.
+Multiple values mean OR. For example, `["tent", "accommodation"]` includes both camping and indoor stays.
+Ask the user before calling if the sleeping modes are unknown. Do not substitute another mode when a search finds nothing.
+
+`komoot_find_overnight_stays` searches mapped places along the source tour.
+`start_km` and `end_km` select a route window. Returned encounter kilometres refer to the original tour.
+`corridor_m` limits mapped places to a straight-line corridor. The default is 2000 metres.
+OSM types include campsites, hotels, hostels, guest houses, chalets and staffed or unstaffed huts.
+Mapped private, prohibited or inactive places are excluded.
+Campsite tent acceptance remains unknown unless tagged. A campsite supports accommodation only when rental units are mapped.
+Generic shelters do not establish sleeping accommodation.
+Results retain source tags, contact details, reservation information and unknown availability.
+`overnight_date` gives date context. It does not establish seasonal opening or available beds.
+
+Selecting `bivouac` also searches raster terrain for inspection areas.
+The defaults require 30–150 metres from the source track and at least 30 metres from other mapped paths.
+Use `min_path_distance_m`, `max_path_distance_m`, `max_slope_deg`, `min_area_m2` and `persons` to change these thresholds.
+`min_area_m2` is the sampled patch area per person. It is not a verified sleeping footprint.
+The default maximum sampled slope is 5 degrees.
+Known mapped buildings, water, private areas and conservation areas are excluded conservatively.
+Containing-area checks use Overpass-generated areas. They do not cover every restriction or landowner.
+Permission, ground cover, drainage and usable ground remain unknown.
+Patch bounds can include holes. Inspect the returned point and source data before using a patch.
+
+Terrain uses zoom-15 Terrarium tiles. Results report raster spacing separately from the unknown source DEM resolution.
+The search refuses oversized work before downloading tiles.
+Limits are 120000 grid cells, 24 tiles and 8000000 route/exclusion comparisons.
+Missing exclusion data returns no terrain candidates. Missing DEM neighborhoods make coverage partial.
+Use a smaller route window when a budget is exceeded.
+Terrain searches do not support latitudes above 80 degrees, the antimeridian, or windows spanning more than one degree.
+
+`komoot_plan_stages` previews 2–14 days without changing the original tour.
+Set `days` and the allowed modes. Optional hard limits are `max_distance_km`, `max_duration_s` and `max_ascent_m`.
+Unknown time or ascent cannot satisfy a corresponding hard limit.
+`target_distance_km` sets the preferred daily distance. Without it, the target is the source length divided by the number of days.
+`preferred_modes` ranks allowed modes without excluding the other allowed modes.
+`night_modes` optionally narrows the allowed modes for each of the `days - 1` nights.
+`start_date` is the first day's date in `YYYY-MM-DD` format.
+
+To fix a stop, pass `fixed_stays` with `night`, `name`, `lat`, `lng`, `route_km` and `overnight_modes`.
+Night numbers start at 1. `route_km` selects the source encounter explicitly, including on loops.
+When all nights are fixed, the tool skips place and terrain discovery.
+Automatic terrain searches cover a 500-metre window around each ideal overnight position.
+They do not inspect the whole tour. Search other windows explicitly to find more terrain candidates.
+Mapped place searches cover the whole route.
+The planner evaluates up to eight positions per night and returns up to three complete alternatives.
+It reports omitted positions and source coverage. Failure applies only to the evaluated search.
+
+Each stage keeps its original coordinate vertices and shares an interpolated cut point with its neighbor.
+Accommodation access and return routes are calculated separately with the selected `sport` and `constitution`.
+The next stage returns to the same source position, so no original section is skipped.
+`max_detour_m` limits both access directions together. The default is 5000 metres.
+Routed endpoints must match the requested points within 5 metres. Entrances and permission remain unverified.
+Bivouac-only stops use explicitly unverified straight-line approaches, not claimed walkable paths.
+Source timing uses uniform average pace. Recorded `time_in_motion` takes priority over `duration`.
+The preview includes inline `gpx_content` for each stage. It does not copy source photos or all waypoint notes.
+After exact user approval, import each GPX with `match_route: false`, then save with `komoot_create_planned_tour`.
+Komoot import can simplify geometry. Read back saved tours and reconcile uncertain or partial saves before retrying.
+
+These tools send selected route coordinates to `overpass-api.de` without account credentials.
+Bivouac searches also request public elevation tiles from `elevation-tiles-prod.s3.amazonaws.com`.
+Responses retain OSM attribution and source coverage. The tools make no bookings and write no local files.
+
 ### Discovery, highlights and collections (17)
 
 - `komoot_recommend_tours_near`

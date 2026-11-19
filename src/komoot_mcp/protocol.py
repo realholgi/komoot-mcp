@@ -34,6 +34,7 @@ _READ_ONLY = {
     "komoot_search_thematic_tours", "komoot_analyze_tour_sections",
     "komoot_get_tour_briefing",
     "komoot_find_my_tours_near",
+    "komoot_find_overnight_stays", "komoot_plan_stages",
 }
 _CREATE = {
     "komoot_login", "komoot_upload_tour", "komoot_plan_and_upload",

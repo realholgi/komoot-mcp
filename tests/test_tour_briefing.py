@@ -119,7 +119,8 @@ async def test_missing_geometry_is_not_an_empty_supply_inventory(monkeypatch, br
     get.assert_not_called()
 
 
-@pytest.mark.parametrize("authenticated", [False, True])
-def test_removed_provider_is_no_longer_an_approved_destination(authenticated):
+@pytest.mark.parametrize("host", ["overpass-api.de", "elevation-tiles-prod.s3.amazonaws.com"])
+def test_overnight_geodata_hosts_never_receive_account_credentials(host):
+    secure_http.validate_destination(f"https://{host}/", authenticated=False)
     with pytest.raises(ValueError, match="approved HTTPS"):
-        secure_http.validate_destination("https://overpass-api.de/api/interpreter", authenticated=authenticated)
+        secure_http.validate_destination(f"https://{host}/", authenticated=True)

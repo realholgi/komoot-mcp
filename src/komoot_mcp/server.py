@@ -26,6 +26,7 @@ from komoot_mcp.tools import (
     highlight_tools,
     native_routing_tools,
     nearby_tour_tools,
+    overnight_tools,
     publication_tools,
     private_place_tools,
     poi_review_tools,
@@ -67,6 +68,7 @@ def create_server(host="127.0.0.1", port=8000, *, read_only=False):
     extended_discovery_tools.register(mcp)
     native_routing_tools.register(mcp)
     nearby_tour_tools.register(mcp)
+    overnight_tools.register(mcp)
     publication_tools.register(mcp)
     private_place_tools.register(mcp)
     poi_review_tools.register(mcp)

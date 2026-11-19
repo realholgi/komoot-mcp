@@ -10,7 +10,9 @@ from komoot_mcp.http_cache import TourResponseCache
 _TOUR_CACHE = TourResponseCache()
 
 _AUTH_HOSTS = frozenset({"api.komoot.de", "www.komoot.com", "weather-along-tour-api.komoot.de"})
-_PUBLIC_HOSTS = _AUTH_HOSTS | {"photon.komoot.io"}
+_PUBLIC_HOSTS = _AUTH_HOSTS | {
+    "photon.komoot.io", "overpass-api.de", "elevation-tiles-prod.s3.amazonaws.com",
+}
 
 
 def validate_destination(url: str, authenticated: bool = True) -> None:

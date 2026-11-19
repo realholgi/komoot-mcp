@@ -10,6 +10,7 @@ dependencies = [
     "kompy>=0.0.12,<0.1",
     "gpxpy>=1.6.0",
     "requests>=2.31.0",
+    "Pillow>=10.4.0",
     "starlette>=0.27.0",
     "uvicorn>=0.23.0",
 ]

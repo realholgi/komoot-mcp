@@ -31,6 +31,11 @@ To select the minimum supported Python explicitly, add `--python 3.11`.
 | `src/komoot_mcp/secure_http.py` | Direct HTTP transport policy |
 | `src/komoot_mcp/routing.py` | Native planning, coordinate checks and save results |
 | `src/komoot_mcp/gpx_import.py` | GPX import into route data |
+| `src/komoot_mcp/overnight.py` | Sleeping modes, route snapshots and exact source cuts |
+| `src/komoot_mcp/overnight_geodata.py` | Anonymous bounded OSM geometry requests |
+| `src/komoot_mcp/overnight_places.py` | Mapped overnight places and source qualifiers |
+| `src/komoot_mcp/bivouac.py` | Bounded terrain patches and mapped exclusions |
+| `src/komoot_mcp/stage_planning.py` | Complete stage alternatives, access legs and inline GPX |
 | `src/komoot_mcp/komoot_import.py` | Prepared-route account operations and read-back checks |
 | `src/komoot_mcp/publication.py` | Preview, receipts, pending intents, locks and publication recovery |
 | `src/komoot_mcp/artifacts.py` | Local artifacts and atomic export writes |
@@ -47,7 +52,7 @@ Tests replace network behavior at client and HTTP seams without changing the too
 The integration uses `kompy` internals, including `Tour._create_*`.
 The declared dependency stays below `0.1.0`.
 MCP stays below major version `2`.
-The project also depends on `gpxpy`, `requests`, `starlette` and `uvicorn`.
+The project also depends on `gpxpy`, `requests`, `Pillow`, `starlette` and `uvicorn`.
 See `pyproject.toml` for supported ranges and `uv.lock` for exact resolved versions.
 
 When changing dependency ranges, update the lock deliberately:
