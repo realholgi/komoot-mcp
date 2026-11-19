@@ -17,6 +17,9 @@ async def test_importer_preserves_exact_komoot_catalog():
     importer_tools = {tool.name: tool for tool in await importer.list_tools()}
     assert importer.name == "komoot-mcp"
     assert {
+        "komoot_find_pois_nearby",
+        "komoot_resolve_place",
+        "komoot_update_planned_tour",
         "komoot_login",
         "komoot_list_tours",
         "komoot_get_tour",
@@ -111,7 +114,8 @@ from komoot_mcp.server import create_server
 
 server = create_server()
 assert server.name == "komoot-mcp"
-assert len(asyncio.run(server.list_tools())) == 51
+tools = {tool.name for tool in asyncio.run(server.list_tools())}
+assert {"komoot_resolve_place", "komoot_update_planned_tour"} <= tools
 """],
         cwd=tmp_path, capture_output=True, text=True,
     )

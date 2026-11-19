@@ -1,7 +1,7 @@
 """REST behavior for native tour metadata, uploads, and binary exports."""
 
 import json
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import requests
@@ -103,7 +103,12 @@ async def test_rest_http_failure_preserves_status_and_body(client, monkeypatch):
 async def test_save_sends_private_planned_tour_with_poi_metadata(client, monkeypatch):
     request = Mock(return_value=response(status=201, body={"id": 42}))
     monkeypatch.setattr("komoot_mcp.client.requests.post", request)
-    route = {"result_status": "ok", "sport": "hike", "path": [{"name": "Fontaine", "description": "Still working"}]}
+    route = {"result_status": "ok", "sport": "hike", "constitution": 3,
+             "planning_summary": {"warnings": []},
+             "path": [{"reference": "poi:Ab123", "name": "Fontaine", "description": "Still working"}]}
+    client.get_tour = AsyncMock(return_value={
+        **route, "id": 42, "type": "tour_planned", "status": "private",
+    })
     result = await client.save_planned_tour(route, "Example route")
     sent = request.call_args.kwargs["json"]
     assert sent["type"] == "tour_planned"
@@ -112,6 +117,12 @@ async def test_save_sends_private_planned_tour_with_poi_metadata(client, monkeyp
     assert "result_status" not in sent
     assert route["result_status"] == "ok"
     assert result["url"] == "https://www.komoot.com/tour/42"
+    assert result["verification"]["verified"] is True
+    assert result["verified_visibility"] == "private"
+    assert result["visibility_verified"] is True
+    assert "planning_summary" not in sent
+    assert sent["_embedded"]["save_options"] == {"origin": "route_planner"}
+    client.get_tour.assert_awaited_once_with(42)
 
 
 @pytest.mark.asyncio

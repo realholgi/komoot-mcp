@@ -107,6 +107,27 @@ def register(mcp):
         return saved_plan_result(saved, route, status)
 
     @mcp.tool()
+    async def komoot_update_planned_tour(
+        tour_id: int, route_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Replace the geometry of one existing planned tour with a previewed route.
+
+        Side effect: updates this exact tour ID in the account.
+        Pass the full result of komoot_plan_native_route or komoot_import_gpx_route.
+        This tool does not plan again. It preserves name, visibility, description,
+        and gear. Komoot can refresh the planning date. The result reports its
+        before and after values in metadata_changes.date.
+        This tool rejects recorded activities and incomplete geometry.
+        Readback checks geometry, ordered waypoint references, sport, fitness,
+        visibility, and the preserved metadata. If readback fails, inspect the
+        reported tour ID before retrying. This tool does not create another tour.
+        """
+        saved = await get_client().update_planned_tour(tour_id, route_data)
+        result = saved_plan_result(saved, route_data, saved["verified_visibility"])
+        result["metadata_changes"] = saved["metadata_changes"]
+        return result
+
+    @mcp.tool()
     async def komoot_plan_and_save_tour(
         coordinates: list[list[float]], name: str, sport: str = "hike",
         constitution: int = 3, roundtrip: bool = False,
@@ -122,7 +143,7 @@ def register(mcp):
         (touringbicycle), plus native mtb, mountainbike, touringbicycle,
         racebike, e_racebike, e_mtb, jogging, nordicwalking, e_touringbicycle.
         constitution is integer fitness 1–5. roundtrip appends the start.
-        Visibility is requested, not readback-verified.
+        Readback verifies the saved visibility, sport, fitness, and waypoint references.
         waypoint_names contains one name or null per input coordinate.
         An appended roundtrip endpoint uses the start name.
         route_type selects best, quiet, scenic, shortest, less_elevation, or technical.

@@ -3,7 +3,7 @@
 [Project overview](../README.md) | [MCP setup](mcp-setup.md) | [Prepared-route import](prepared-import.md)
 
 Use MCP tool discovery for current argument schemas and side-effect hints.
-The full catalog has 51 tools. Startup policy can hide tools.
+The full catalog has 54 tools. Startup policy can hide tools.
 Unknown parameter names fail instead of being ignored.
 
 ## Tool groups
@@ -67,10 +67,12 @@ File output preserves download bytes. Existing files require `overwrite=true` fo
 FIT downloads support planned tours. There is no `komoot_get_tour_fit` tool.
 Downloads count as write tools because they can create local files, even when a call requests inline content.
 
-### Planning and geocoding (7)
+### Planning and geocoding (9)
 
 - `komoot_geocode`
 - `komoot_reverse_geocode`
+- `komoot_find_pois_nearby`
+- `komoot_resolve_place`
 - `komoot_import_gpx_route`
 - `komoot_plan_native_route`
 - `komoot_create_planned_tour`
@@ -79,6 +81,32 @@ Downloads count as write tools because they can create local files, even when a 
 
 Planning uses Komoot's native planner, the shared rate limiter and worker threads for blocking requests.
 Geocoding uses public Photon.
+For place-name queries, `komoot_geocode` accepts `osm_tag` to filter by an OSM tag.
+Use `highway:bus_stop` for bus stops or `amenity:restaurant` for restaurants.
+Coordinate queries use reverse geocoding and reject `osm_tag`.
+Geocode results include `osm_id`, `osm_type`, `osm_key`, and `osm_value` when Photon supplies them.
+Use the OSM tags to distinguish places such as bus stops and restaurants.
+For example, `osm_key: "highway"` with `osm_value: "bus_stop"` identifies a bus stop.
+These OSM identifiers are not Komoot `poi_id` values.
+
+Use `komoot_find_pois_nearby` to get ordinary Komoot map POIs near coordinates.
+Supply `lat`, `lng`, and optional `radius_m` (1–5000), `limit` (1–100), and `lang`.
+The search needs no account. Results include names, coordinates, OSM IDs, categories, and available Komoot `poi_id` values.
+Match Photon `osm_type: "N"` and `osm_id: 369831410` to the result's `osm_id: "n369831410"`.
+Do not select the first nearby result without checking its identity.
+Pass its `waypoint_details` into a planning tool to preserve the named POI.
+Results without a Komoot POI ID have `waypoint_details: null`.
+
+For example, search for `Schindelpeter` with `osm_tag: "highway:bus_stop"` near Bühlertal.
+Then call `komoot_find_pois_nearby` at the returned coordinates.
+The stop has Komoot `poi_id: "7mn4K"` and planning details `{"poi_id": "7mn4K"}`.
+
+`komoot_resolve_place` combines name search and POI identity lookup in one call.
+It accepts `query`, `limit` (1–10), `lang`, optional `near_lat` and `near_lng`, and optional `osm_tag`.
+It returns all candidates with their original location and category.
+Each candidate reports `resolution_status` and genuine POI planning details when resolved.
+Statuses include `resolved`, `not_found`, `ambiguous`, `missing_poi_id`, `missing_osm_identity`, and `invalid_location`.
+Unresolved candidates remain in the result. The tool does not choose a place for you or invent an ID.
 
 | Tool | Behavior |
 | --- | --- |
@@ -91,18 +119,78 @@ Geocoding uses public Photon.
 For a roundtrip, supply intermediate points. The planner returns to the start.
 It does not generate a loop for a target distance.
 
+Use `waypoint_names` on the coordinate planning tools and `komoot_plan_and_upload`.
+Supply one name or `null` per input point, in order: start, via points, end.
+An appended roundtrip endpoint inherits the start name.
+Place-name planning uses resolved geocoder names unless you supply explicit names.
+Coordinate-only points stay unnamed unless you supply names.
+
+All three planning tools also accept `waypoint_details`.
+Supply one object or `null` per input point, including start and end.
+Each object accepts these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | A custom waypoint name |
+| `highlight_id` | A positive numeric Komoot highlight ID |
+| `highlight_type` | `point` (default) or `segment` |
+| `poi_id` | A Komoot map POI ID containing only ASCII letters and digits |
+
+Use only one of `name`, `highlight_id`, or `poi_id` for each point.
+Highlight and POI references cannot also have a name in `waypoint_names`.
+Komoot resolves the name of a referenced highlight or map POI.
+Custom names do not rename these references.
+Coordinates or place locations remain required. An ID alone does not supply a location.
+Named points use `cnw:` references. Highlight points use `hlp:` and segments use `hls:`.
+Ordinary map POIs use `poi:` references. Supply the ID without the `poi:` prefix.
+Use an ID returned by Komoot. OSM IDs cannot be converted into Komoot POI IDs.
+An appended roundtrip endpoint inherits the start metadata.
+The planner keeps references when Komoot snaps coordinates, and the save step preserves them.
+Conflicting names or a different returned waypoint count fail before saving.
+
+```json
+{
+  "coordinates": [[49.0, 8.0], [49.1, 8.1], [49.2, 8.2]],
+  "waypoint_details": [
+    {"name": "Station"},
+    {"highlight_id": 123, "highlight_type": "point"},
+    {"name": "Trailhead"}
+  ]
+}
+```
+
+For `komoot_plan_and_upload`, details follow start, each via point, then end if supplied.
+Explicit details take precedence over geocoder names. `null` allows the resolved place name.
+
+
+GPX imports preserve named POIs and named track or route endpoints.
+The import rejects ambiguous source geometry instead of assigning names to another track.
+
 Save results include `tour_id`, `tour_url`, `distance_m`, `duration_s` and `elevation_up_m`.
-They separate `requested_visibility` from `verified_visibility`.
-These planning save tools do not read visibility back.
-Their `visibility_verified` is `false` and `verified_visibility` is `null`.
-Prepared publication has separate read-back checks. See the [import guide](prepared-import.md).
+Each save reads the new tour back to check its ID, planned type, visibility, sport, fitness, and ordered waypoint references.
+The result includes `verification` with requested values, observed values, and mismatches.
+Successful checks set `visibility_verified: true` and report `verified_visibility`.
+If readback fails or values differ, the tool returns an error with the saved tour ID.
+Inspect that tour before retrying. The server does not retry writes automatically.
+Prepared publication has additional read-back checks. See the [import guide](prepared-import.md).
+
+Previews, save results, and compact or full tour details include `planning_summary`.
+Its `pace` reports distance, duration in seconds, a readable duration, average speed in km/h, and fitness.
+Missing or invalid durations produce no calculated speed.
+The English Hiking planner label `Fast` was verified for fitness 4 on 2026-11-18 using its routing request and response.
+Other labels and sports remain explicitly unverified.
+Readable `warnings` retain their native code, raw entry, and coordinate-index spans.
+`information` contains protection-area notices separately from warnings.
+Unknown warning codes stay visible and are marked unknown.
+These summaries do not change the route or claim that current access restrictions were checked.
 
 Set `prepare_descriptions=true` in `komoot_import_gpx_route` to use MCP client sampling.
 Sampling needs client approval and uses the client's model.
 It needs no server model API key. Prepared-artifact import does not use sampling.
 
-### Tour changes and sharing (7)
+### Tour changes and sharing (8)
 
+- `komoot_update_planned_tour`
 - `komoot_upload_tour`
 - `komoot_modify_tour`
 - `komoot_delete_tour`
@@ -112,6 +200,58 @@ It needs no server model API key. Prepared-artifact import does not use sampling
 - `komoot_resolve_share_url`
 
 Resolving a share URL reads data. Creating or revoking a link changes sharing.
+
+`komoot_update_planned_tour(tour_id, route_data)` replaces a planned route under its existing ID.
+Preview the replacement with `komoot_plan_native_route` or `komoot_import_gpx_route` first.
+Pass that full route result as `route_data`, including its embedded geometry.
+The update preserves the current name, visibility, description, and gear.
+Komoot may reset the tour date during a route update.
+The result reports this as `metadata_changes.date`, with the before and after values.
+It rejects recorded activities and incomplete geometry before writing.
+It does not plan again, create a copy, or delete the original tour.
+Readback checks geometry, ordered references, sport, fitness, visibility, and preserved metadata.
+If the update cannot be verified, inspect the reported tour ID before retrying.
+
+`komoot_modify_tour_extended` changes supplied fields without replacing route geometry.
+It accepts name, sport, visibility, description, gear and date, plus these values:
+
+| Argument | Behavior |
+| --- | --- |
+| `speed_kmh` | Set average speed using the current tour distance |
+| `duration_s` | Set total duration in whole seconds |
+| `time_in_motion_s` | Set moving time in whole seconds, for recorded tours only |
+| `constitution` | Store fitness from 1 to 5, for planned tours only |
+
+Speed changes set duration for planned tours and moving time for recorded tours.
+The calculated time rounds to a whole second, with a minimum of one second.
+Use speed or explicit times in one call, not both.
+Moving time must not exceed total duration.
+Fitness changes do not recalculate duration.
+The tool reads timing and fitness fields back after the update.
+If Komoot returns different values, the tool raises an error. Inspect the tour before retrying.
+
+For example, `komoot_modify_tour_extended(tour_id=42, speed_kmh=4.5)` requests an average speed of 4.5 km/h.
+
+### Route preferences
+
+`komoot_plan_native_route`, `komoot_plan_and_save_tour` and `komoot_plan_and_upload` accept these options:
+
+| Argument | Values |
+| --- | --- |
+| `route_type` | `best` (default), `quiet`, `scenic`, `shortest`, `less_elevation`, `technical` |
+| `avoid` | A list of `ferries`, `steps`, `steep_hills` and `rough_terrain` |
+
+Combine one route type with any avoidance options.
+For example, use `route_type="quiet", avoid=["ferries", "steps"]`.
+The planner sends these preferences as `custom_tags` when it calculates geometry.
+Saved routes keep the tags. `komoot_create_planned_tour` also preserves tags from a separate planning step.
+These options do not edit or recalculate an existing saved tour.
+Avoidance is a preference, not a guarantee that the route excludes those features.
+`technical` permits highly technical paths: T4 to T6 for hiking and S4 to S5 for biking.
+
+The internal tags match the [web planner bundle](https://www.komoot.com/assets/4357.fdfb3f876f388c4d.js).
+Route types use their public names, except `best`, which has no tag.
+Avoidance maps to `no_ferry`, `no_steps`, `no_steep` and `no_poor`, respectively.
 
 ### Prepared publication (3)
 

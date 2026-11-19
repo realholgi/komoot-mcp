@@ -24,6 +24,9 @@ async def test_discovery_distinguishes_reads_account_changes_and_local_files():
 
     assert hints("komoot_get_tour").readOnlyHint is True
     assert hints("komoot_plan_native_route").readOnlyHint is True
+    assert hints("komoot_resolve_place").readOnlyHint is True
+    assert hints("komoot_update_planned_tour").readOnlyHint is False
+    assert hints("komoot_update_planned_tour").destructiveHint is True
     assert hints("komoot_create_planned_tour").readOnlyHint is False
     assert hints("komoot_create_planned_tour").idempotentHint is False
     assert hints("komoot_delete_tour").destructiveHint is True

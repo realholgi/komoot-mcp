@@ -39,6 +39,7 @@ _CHANGE = {
     "komoot_revoke_share_link", "komoot_unbookmark_highlight", "komoot_publish_prepared",
     "komoot_download_tour_gpx", "komoot_download_tour_fit", "komoot_export_all_tours",
     "komoot_download_smart_tour_gpx",
+    "komoot_update_planned_tour",
 }
 
 # Explicit membership prevents a new write tool from inheriting read-only hints.

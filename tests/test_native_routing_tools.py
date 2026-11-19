@@ -33,6 +33,14 @@ def handlers(monkeypatch):
             "sport": "hike", "path": [{"name": "Fontaine"}],
         }}}),
         save_planned_tour=AsyncMock(return_value={"id": 42, "status": "saved"}),
+        update_planned_tour=AsyncMock(return_value={
+            "id": 42, "status": "updated", "verified_visibility": "friends",
+            "visibility_verified": True, "verification": {
+                "verified": True, "requested": {"status": "friends"},
+                "observed": {"status": "friends"}, "mismatches": [],
+            },
+            "metadata_changes": {"date": {"before": "2026-01-01", "after": "2026-11-18"}},
+        }),
         _basic_auth=Mock(return_value=("user", "token")),
         rl=SimpleNamespace(acquire=AsyncMock()),
     )
@@ -95,6 +103,24 @@ async def test_roundtrip_uses_native_planner_and_then_saves_same_geometry(handle
     assert planner.plan.call_args.args == ([*coordinates, coordinates[0]], "hike", 3)
     assert coordinates == [[49.0, 8.0], [49.1, 8.1]]
     client.save_planned_tour.assert_awaited_once_with(route, "Loop", status="private")
+
+
+@pytest.mark.asyncio
+async def test_update_uses_existing_id_and_preview_without_planning(handlers, monkeypatch):
+    functions, client = handlers
+    planner = Mock()
+    monkeypatch.setattr(routing, "KomootNativePlanner", planner)
+    route = {"sport": "hike", "constitution": 3, "distance": 1200,
+             "path": [{"reference": "poi:Ab12"}, {"reference": "hlp:25"}]}
+    result = await functions["komoot_update_planned_tour"](42, route)
+    client.update_planned_tour.assert_awaited_once_with(42, route)
+    client.save_planned_tour.assert_not_awaited()
+    planner.assert_not_called()
+    assert result["tour_id"] == 42
+    assert result["visibility_verified"] is True
+    assert result["verified_visibility"] == "friends"
+    assert result["verification"]["verified"] is True
+    assert result["metadata_changes"]["date"] == {"before": "2026-01-01", "after": "2026-11-18"}
 
 
 @pytest.mark.asyncio

@@ -493,47 +493,29 @@ class KomootClient:
         name,
         status="private",
     ):
-        """Save a Komoot native-planner response as a ``tour_planned``.
+        """Save a native planner result and verify the new planned tour.
 
-        Companion to :class:`komoot_mcp.routing.KomootNativePlanner`.
-        The planner's ``POST /api/routing/tour`` already returns a full
-        route blob (with ``distance``, ``duration``, ``path``,
-        ``segments``, ``_embedded.coordinates``, etc.) that this method
-        forwards verbatim to ``POST /api/v007/tours/?hl=en``, plus the
-        four fields Komoot needs to actually persist it:
-
-        * ``type: "tour_planned"`` — the magic field. Without this we
-          would get a ``tour_recorded`` (activity) record, which is the
-          exact failure mode that motivated this whole change.
-        * ``status`` — privacy (``private`` / ``public`` / ``friends``).
-        * ``name`` — user-visible tour name.
-        * ``save_options: {"origin": "route_planner"}`` — mirrors what
-          Komoot's web frontend sends so analytics treat the tour as
-          planner-origin, not API-import.
-
-        Auth is Basic ``(uid, token)`` — same flow as
-        :meth:`upload_gpx_capture_id`. Confirmed against the live API
-        with a probe that round-tripped a real Freiburg → Schauinsland
-        mountain-bike route (status 201, the saved tour's ``type``
-        field came back as ``tour_planned`` and was visible in the
-        Komoot UI under Planned Routes).
-
-        Returns ``{"id": <int>, "status": "saved"}`` on 200/201.
-        Raises ``KomootAPIError`` on any other status.
+        Uses the web planner's planned-field filter and embedded route geometry.
+        Readback checks type, requested visibility, sport, fitness, and ordered
+        waypoint references. A failed readback includes the saved ID and must
+        not trigger an automatic retry.
         """
         url = "https://www.komoot.com/api/v007/tours/?hl=en"
         # Don't mutate the caller's dict — planner consumers might want
         # to inspect it after we return.
         if status not in ("private", "friends", "public"):
             raise ValueError("status must be private, friends, or public")
-        save_body = {k: v for k, v in route_response.items() if k != "result_status"}
+        from komoot_mcp.persistence import planned_payload
+
+        save_body = planned_payload(route_response)
+        save_body.pop("id", None)
         save_body["type"] = "tour_planned"
         save_body["status"] = status
         save_body["name"] = name
         from datetime import datetime, timezone
         save_body["date"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         save_body.setdefault("custom_tags", [])
-        save_body["save_options"] = {"origin": "route_planner"}
+        save_body.setdefault("_embedded", {})["save_options"] = {"origin": "route_planner"}
 
         auth_pair = await asyncio.to_thread(self._basic_auth)
         headers = {
@@ -565,13 +547,115 @@ class KomootClient:
             tour_id = body.get("id")
             if not tour_id:
                 raise KomootAPIError("Saved tour response has no ID; do not blindly retry")
-            return {"id": tour_id, "status": "saved", "url": f"https://www.komoot.com/tour/{tour_id}"}
+            verification = await self._verify_planned_tour(tour_id, save_body)
+            return {
+                "id": tour_id, "status": "saved",
+                "url": f"https://www.komoot.com/tour/{tour_id}",
+                "verification": verification,
+                "verified_visibility": verification["observed"]["status"],
+                "visibility_verified": True,
+            }
 
         snippet = (resp.text or "")[:300]
         raise KomootAPIError(
             f"Komoot rejected save_planned_tour (HTTP {resp.status_code}). "
             f"Response body (first 300 chars): {snippet}"
         )
+
+    async def _verify_planned_tour(self, tour_id, body, geometry=None, preserved=None):
+        from komoot_mcp.persistence import (
+            compare_readback, expected_readback, geometry_points,
+        )
+
+        requested = expected_readback(body)
+        requested.update(preserved or {})
+        requested["id"] = tour_id
+        try:
+            tour = await self.get_tour(tour_id)
+            verification = compare_readback(requested, tour)
+            if geometry is not None:
+                verification["observed"]["date"] = tour.get("date")
+                observed = geometry_points(await self.get_tour_coordinates(tour_id))
+                # The coordinate endpoint can round geographic coordinates.
+                matches = len(observed) == len(geometry) and all(
+                    abs(a - b) <= 0.000001
+                    for before, after in zip(geometry, observed)
+                    for a, b in zip(before, after)
+                )
+                verification["requested"]["geometry_point_count"] = len(geometry)
+                verification["observed"]["geometry_point_count"] = len(observed)
+                verification["observed"]["geometry_matches"] = matches
+                if not matches:
+                    verification["mismatches"].append("geometry")
+                verification["verified"] = not verification["mismatches"]
+        except Exception as error:
+            raise KomootAPIError(
+                f"Tour {tour_id} write succeeded but readback failed: {error}; "
+                "inspect this tour before retrying"
+            ) from error
+        if not verification["verified"]:
+            raise KomootAPIError(
+                f"Tour {tour_id} write succeeded but readback differs for "
+                + ", ".join(verification["mismatches"])
+                + "; inspect this tour before retrying"
+            )
+        return verification
+
+    async def update_planned_tour(self, tour_id, route_response):
+        """Replace an existing planned route with previewed geometry, without routing."""
+        from komoot_mcp.persistence import planned_payload, validate_replacement
+
+        if isinstance(tour_id, bool):
+            raise ValueError("tour_id must be positive")
+        tour_id = int(tour_id)
+        if tour_id <= 0:
+            raise ValueError("tour_id must be positive")
+        body = planned_payload(route_response)
+        geometry = validate_replacement(body)
+        current = await self.get_tour(tour_id)
+        if current.get("type") != "tour_planned":
+            raise KomootAPIError("Only tour_planned routes can be replaced; no update sent")
+        if current.get("status") not in {"private", "friends", "public"}:
+            raise KomootAPIError("Tour visibility is missing or unsupported; no update sent")
+        preserved = {
+            key: current[key]
+            for key in ("name", "status", "description", "date", "gear")
+            if key in current
+        }
+        for key in ("name", "status", "description", "date", "gear"):
+            body.pop(key, None)
+        body.update(preserved)
+        body.update({"id": tour_id, "type": "tour_planned"})
+        # TourHal.save uses update:"put" with its planned _syncPostData body.
+        # Shipped main.4aa1c01d52651411.js, offsets 1092250–1093070.
+        try:
+            await self._http_request(
+                "PUT", f"https://api.komoot.de/v007/tours/{tour_id}",
+                json_body=body, headers={"Content-Type": "application/hal+json"},
+            )
+        except KomootAPIError as error:
+            raise KomootAPIError(
+                f"Tour {tour_id} update outcome is not verified: {error}; "
+                "inspect this tour before retrying",
+                status_code=error.status_code, body=error.body,
+            ) from error
+        verification = await self._verify_planned_tour(
+            tour_id, body, geometry=geometry,
+            preserved={key: value for key, value in preserved.items() if key != "date"},
+        )
+        # PUT can refresh the planning date. PATCH does not accept this field.
+        metadata_changes = {
+            "date": {"before": current.get("date"), "after": verification["observed"]["date"]},
+        }
+        verification["metadata_changes"] = metadata_changes
+        return {
+            "id": tour_id, "status": "updated",
+            "url": f"https://www.komoot.com/tour/{tour_id}",
+            "verification": verification,
+            "metadata_changes": metadata_changes,
+            "verified_visibility": verification["observed"]["status"],
+            "visibility_verified": True,
+        }
 
     async def modify_tour(self, tour_id, name=None, sport=None, status=None):
         api = self._get_api()

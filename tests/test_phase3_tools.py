@@ -69,7 +69,7 @@ def registered_tools():
 
     from komoot_mcp.tools import (
         browse_tools, write_tools, highlight_tools, discover_tools,
-        collection_tools, share_tools,
+        collection_tools, share_tools, native_routing_tools,
     )
     browse_tools.register(_Mcp())
     write_tools.register(_Mcp())
@@ -77,6 +77,7 @@ def registered_tools():
     discover_tools.register(_Mcp())
     collection_tools.register(_Mcp())
     share_tools.register(_Mcp())
+    native_routing_tools.register(_Mcp())
     return registry
 
 
@@ -228,6 +229,39 @@ async def test_modify_explicit_timing_and_fitness(registered_tools, auth_token):
         "duration": 5400, "constitution": 4, "name": "Summit",
     }
     assert out["result"]["constitution"] == 4
+
+
+@pytest.mark.asyncio
+async def test_replace_planned_route_uses_put_and_two_readbacks(registered_tools, auth_token):
+    from komoot_mcp.context import get_client
+    _stub_kompy_auth(get_client())
+    current = {"id": 42, "type": "tour_planned", "status": "private", "name": "Kept",
+               "description": "Original", "date": "2026-01-01T00:00:00Z", "gear": "Boots"}
+    route = {
+        "sport": "hike", "constitution": 4,
+        "path": [
+            {"location": {"lat": 49, "lng": 8}, "index": 0, "reference": "poi:Ab12"},
+            {"location": {"lat": 50, "lng": 9}, "index": 1, "reference": "cnw:1"},
+        ],
+        "segments": [{"type": "Routed", "from": 0, "to": 1}],
+        "_embedded": {"coordinates": {"items": [[49, 8], [50, 9]]}},
+        "planning_summary": {"warnings": []},
+    }
+    with patch("komoot_mcp.client.requests.request", side_effect=[
+        _make_response(json_body=current), _make_response(json_body={}),
+        _make_response(json_body={**route, **current}),
+        _make_response(json_body={"items": [[49, 8], [50, 9]]}),
+    ]) as request:
+        out = await registered_tools["komoot_update_planned_tour"](42, route)
+    assert [call.kwargs["method"] for call in request.call_args_list] == ["GET", "PUT", "GET", "GET"]
+    write = request.call_args_list[1].kwargs
+    assert write["url"] == "https://api.komoot.de/v007/tours/42"
+    assert write["json"]["name"] == "Kept"
+    assert write["json"]["path"] == route["path"]
+    assert "planning_summary" not in write["json"]
+    assert out["tour_id"] == 42
+    assert out["verification"]["verified"] is True
+    assert out["visibility_verified"] is True
 
 
 @pytest.mark.asyncio
